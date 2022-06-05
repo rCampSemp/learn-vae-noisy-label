@@ -15,6 +15,62 @@ from sklearn.metrics import confusion_matrix
 # =============================================
 
 
+def evaluate(data, model, class_no):
+    """
+
+    Args:
+        data:
+        model1:
+        class_no:
+
+    Returns:
+
+    """
+    model.eval()
+    # model2.eval()
+    #
+    test_dice = 0
+    # test_dice_all = []
+    #
+    for i, (v_images, v_labels_over, v_labels_under, v_labels_wrong, v_labels_good, v_imagename) in enumerate(data):
+        #
+        # print(i)
+        #
+        v_images = v_images.to(device='cuda', dtype=torch.float32)
+        v_outputs_logits, cms = model(v_images)
+        # b, c, h, w = v_outputs_logits.size()
+        v_outputs_logits = nn.Softmax(dim=1)(v_outputs_logits)
+        # cms = model2(v_images)
+        #
+        _, v_output = torch.max(v_outputs_logits, dim=1)
+        # v_outputs_noisy = []
+        #
+        # v_outputs_logits = v_outputs_logits.view(b, c, h*w)
+        # v_outputs_logits = v_outputs_logits.permute(0, 2, 1).contiguous().view(b*h*w, c)
+        # v_outputs_logits = v_outputs_logits.view(b * h * w, c, 1)
+        #
+        # for cm in cms:
+        #     #
+        #     cm = cm.reshape(b, c**2, h*w).permute(0, 2, 1).contiguous().view(b*h*w, c*c).view(b*h*w, c, c)
+        #     cm = cm / cm.sum(1, keepdim=True)
+        #     v_noisy_output = torch.bmm(cm, v_outputs_logits).view(b*h*w, c)
+        #     v_noisy_output = v_noisy_output.view(b, h*w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
+        #     _, v_noisy_output = torch.max(v_noisy_output, dim=1)
+        #     v_outputs_noisy.append(v_noisy_output.cpu().detach().numpy())
+        # #
+        v_dice_ = segmentation_scores(v_labels_good, v_output.cpu().detach().numpy(), class_no)
+        # epoch_noisy_labels = [v_labels_over.cpu().detach().numpy(), v_labels_under.cpu().detach().numpy(), v_labels_wrong.cpu().detach().numpy(), v_labels_good.cpu().detach().numpy()]
+        # v_ged = generalized_energy_distance(epoch_noisy_labels, v_outputs_noisy, class_no)
+        test_dice += v_dice_
+        # test_dice_all.append(test_dice)
+        #
+    # print(i)
+    # print(test_dice)
+    # print(test_dice / (i + 1))
+    #
+    return test_dice / (i + 1)
+
+
 class CustomDataset(torch.utils.data.Dataset):
 
     def __init__(self, imgs_folder, labels_folder, augmentation):

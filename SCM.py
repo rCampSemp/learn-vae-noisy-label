@@ -13,7 +13,7 @@ class UNet_SCM(nn.Module):
     The segmentation network is U-net. The confusion  matrix network is defined in cm_layers
 
     """
-    def __init__(self, in_ch, width, depth, class_no, norm='in'):
+    def __init__(self, in_ch, resolution, batch_size, input_dim, width, depth, class_no, latent=512, norm='in'):
         #
         # ===============================================================================
         # in_ch: dimension of input
@@ -28,7 +28,9 @@ class UNet_SCM(nn.Module):
 
         self.decoders = nn.ModuleList()
         self.encoders = nn.ModuleList()
-        self.decoders_noisy_layers = nn.ModuleList()
+
+        self.scm_encoder = scm_encoder(c=width, h=resolution, w=resolution, latent=latent)
+        self.scm_decoder = scm_decoder(c=input_dim, h=resolution, w=resolution, class_no=class_no, latent=latent)
 
         for i in range(self.depth):
 
@@ -50,15 +52,22 @@ class UNet_SCM(nn.Module):
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv_last = nn.Conv2d(width, self.final_in, 1, bias=True)
 
-        for i in range(self.noisy_labels_no):
-            self.decoders_noisy_layers.append(cm_layers(in_channels=width, norm=norm, class_no=self.final_in))
+    def reparameterize(self, mu, logvar):
+        """
+        Will a single z be enough ti compute the expectation
+        for the loss??
+        :param mu: (Tensor) Mean of the latent Gaussian
+        :param logvar: (Tensor) Standard deviation of the latent Gaussian
+        :return:
+        """
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return eps * std + mu
 
     def forward(self, x):
 
         y = x
-
         encoder_features = []
-        y_noisy = []
 
         for i in range(len(self.encoders)):
 
@@ -77,34 +86,31 @@ class UNet_SCM(nn.Module):
                 y = F.pad(y, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2])
 
             y = torch.cat([y_e, y], dim=1)
-
             y = self.decoders[-(i+1)](y)
 
-        for i in range(self.noisy_labels_no):
+        y_t = self.conv_last(y)
+        mu, logvar = self.scm_encoder(y)
+        z = self.reparameterize(mu, logvar)
+        cm, recon = self.scm_decoder(z)
 
-            y_noisy_label = self.decoders_noisy_layers[i](y)
-            y_noisy.append(y_noisy_label)
-
-        y = self.conv_last(y)
-
-        return y, y_noisy
+        return y_t, cm, recon, mu, logvar
 
 
 class scm_encoder(nn.Module):
     """ This class defines the stochastic annotator network
     """
-    def __init__(self, in_channels, norm, class_no):
-        super(scm_decoder, self).__init__()
-        self.conv_1 = double_conv(in_channels=in_channels, out_channels=in_channels, norm=norm, step=1)
-        self.conv_2 = double_conv(in_channels=in_channels, out_channels=in_channels, norm=norm, step=1)
-        self.conv_last = nn.Conv2d(in_channels, class_no**2, 1, bias=True)
-        self.relu = nn.Softplus()
+    def __init__(self, c, h, w, latent):
+        super(scm_encoder, self).__init__()
+        self.fc_mu = nn.Linear(c*h*w, latent)
+        self.fc_var = nn.Linear(c*h*w, latent)
 
     def forward(self, x):
+        # print(x.size())
+        y = torch.flatten(x, start_dim=1)
+        mu = self.fc_mu(y)
+        var = self.fc_var(y)
 
-        y = self.relu(self.conv_last(self.conv_2(self.conv_1(x))))
-
-        return y
+        return mu, var
 
 
 class scm_decoder(nn.Module):
@@ -112,18 +118,22 @@ class scm_decoder(nn.Module):
     Essentially, it share the semantic features with the segmentation network, but the output of annotator network
     has the size (b, c**2, h, w)
     """
-    def __init__(self, in_channels, norm, class_no):
+    def __init__(self, c, h, w, class_no=2, latent=512):
         super(scm_decoder, self).__init__()
-        self.conv_1 = double_conv(in_channels=in_channels, out_channels=in_channels, norm=norm, step=1)
-        self.conv_2 = double_conv(in_channels=in_channels, out_channels=in_channels, norm=norm, step=1)
-        self.conv_last = nn.Conv2d(in_channels, class_no**2, 1, bias=True)
-        self.relu = nn.Softplus()
+        self.w = w
+        self.h = h
+        self.class_no = class_no
+        self.mlp_cm = nn.Linear(latent, h*w*class_no**2)
+        # self.mlp_recon = nn.Linear(latent, c * h * w)
+        self.mlp_recon = nn.Linear(h*w*class_no**2, c * h * w)
+        self.act = nn.ReLU(inplace=True)
 
     def forward(self, x):
+        cm = self.mlp_cm(x)
+        recon = self.mlp_recon(self.act(cm))
+        # recon = self.act(recon)
 
-        y = self.relu(self.conv_last(self.conv_2(self.conv_1(x))))
-
-        return y
+        return cm, recon
 
 
 def double_conv(in_channels, out_channels, step, norm):

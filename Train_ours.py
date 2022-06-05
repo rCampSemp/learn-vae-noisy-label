@@ -71,7 +71,6 @@ def trainModels(input_dim,
                    '_lr' + str(learning_rate) + '_save_probability_' + str(save_probability_map) + \
                    '_low_rank_mode_' + str(low_rank_mode)
 
-        #
         # ====================================================================================================================================================================
         trainloader, validateloader, testloader, data_length = getData(train_batchsize, validate_batchsize, data_path, dataset_tag, label_mode)
         # ================================
