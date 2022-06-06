@@ -58,7 +58,7 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, alpha=1.0):
     pred_noisy = torch.bmm(cm, pred_norm).view(b*h*w, c)
     pred_noisy = pred_noisy.view(b, h*w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
 
-    if epoch < 5:
+    if epoch < 10:
         loss = nn.CrossEntropyLoss(reduction='mean')(pred_norm_prob, label.view(b, h, w).long())
         # loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long())
         # regularisation = torch.trace(torch.transpose(torch.sum(cm, dim=0), 0, 1)).sum() / (b * h * w)
