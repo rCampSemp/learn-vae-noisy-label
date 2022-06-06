@@ -33,10 +33,10 @@ if __name__ == '__main__':
 
     # hyper-parameters for training:
     train_batchsize = 5  # batch size
-    alpha = 100.0  # weight of the trace regularisation of learnt confusion matrices
+    alpha = 1.0  # weight of the trace regularisation of learnt confusion matrices
     num_epochs = 40  # total epochs
     latent = 512
-    learning_rate = 1e-2  # learning rate
+    learning_rate = 1e-3  # learning rate
 
     # image resolution:
     mnist_resolution = 28
