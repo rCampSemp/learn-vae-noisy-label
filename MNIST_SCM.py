@@ -82,7 +82,7 @@ if __name__ == '__main__':
                      norm='in')
 
     # model name for saving:
-    model_name = 'UNet_Stochastic_Confusion_Matrices_' + '_width' + str(width) + \
+    model_name = 'UNet_Conditional_Stochastic_Confusion_Matrices_' + '_width' + str(width) + \
                  '_depth' + str(depth) + '_train_batch_' + str(train_batchsize) + \
                  '_alpha_' + str(alpha) + '_e' + str(num_epochs) + \
                  '_lr' + str(learning_rate)

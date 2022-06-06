@@ -35,15 +35,15 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, alpha=1.0):
     # cm: learnt confusion matrix for each noisy label, b x c**2 x h x w
     # label_noisy: noisy label, b x h x w
     # convex combination of noisy labels:
-    weights = np.random.dirichlet((1, 1, 1, 1), size=1)
-    for i, each_label in enumerate(labels):
-        if i == 0:
-            label = each_label*weights[0][i]
-        else:
-            label += each_label*weights[0][i]
-    label = (label > 0.5).float()
+    # weights = np.random.dirichlet((1, 1, 1, 1), size=1)
+    # for i, each_label in enumerate(labels):
+    #     if i == 0:
+    #         label = each_label*weights[0][i]
+    #     else:
+    #         label += each_label*weights[0][i]
+    # label = (label > 0.5).float()
     # random choice:
-    # label = random.choice(labels)
+    label = random.choice(labels)
 
     # b x c**2 x h x w ---> b*h*w x c x c
     cm = cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)

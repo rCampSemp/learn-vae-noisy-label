@@ -124,14 +124,14 @@ class scm_decoder(nn.Module):
         self.h = h
         self.class_no = class_no
         self.mlp_cm = nn.Linear(latent, h*w*class_no**2)
-        # self.mlp_recon = nn.Linear(latent, c * h * w)
-        self.mlp_recon = nn.Linear(h*w*class_no**2, c * h * w)
-        self.act = nn.ReLU(inplace=True)
+        # self.mlp_recon = nn.Linear(h*w*class_no**2, c * h * w)
+        # self.act = nn.ReLU(inplace=True)
 
     def forward(self, x):
         cm = self.mlp_cm(x)
-        recon = self.mlp_recon(self.act(cm))
+        # recon = self.mlp_recon(self.act(cm))
         # recon = self.act(recon)
+        recon = None
 
         return cm, recon
 
