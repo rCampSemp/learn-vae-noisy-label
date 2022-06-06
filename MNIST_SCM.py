@@ -37,7 +37,7 @@ if __name__ == '__main__':
     num_epochs = 40  # total epochs
     latent = 512
     learning_rate = 1e-3  # learning rate DO NOT USE 1E-2!!
-    ramp_up = 0.1
+    ramp_up = 0.0
 
     # image resolution:
     mnist_resolution = 28
