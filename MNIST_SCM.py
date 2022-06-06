@@ -36,7 +36,7 @@ if __name__ == '__main__':
     alpha = 2.0  # weight of the trace regularisation of learnt confusion matrices
     num_epochs = 40  # total epochs
     latent = 512
-    learning_rate = 1e-2  # learning rate
+    learning_rate = 1e-3  # learning rate
     ramp_up = 0.1
 
     # image resolution:
