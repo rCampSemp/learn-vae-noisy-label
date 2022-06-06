@@ -15,7 +15,6 @@ from tensorboardX import SummaryWriter
 from torch.autograd import Variable
 
 from Utilis import CustomDataset_punet, calculate_cm
-from Loss import noisy_label_loss_low_rank, noisy_label_loss
 from Models import UNet_GlobalCMs
 
 from Utilis import evaluate_noisy_label_4, evaluate_noisy_label_5, evaluate_noisy_label_6
