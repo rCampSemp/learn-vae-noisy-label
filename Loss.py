@@ -50,7 +50,7 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, alpha=1.0):
 
     # normalisation along the rows:
     # cm = cm / cm.sum(1, keepdim=True)
-    cm = torch.softmax(cm / 0.5, dim=1)
+    cm = torch.softmax(cm, dim=1)
 
     # matrix multiplication to calculate the predicted noisy segmentation:
     # cm: b*h*w x c x c
@@ -58,9 +58,9 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, alpha=1.0):
     pred_noisy = torch.bmm(cm, pred_norm).view(b*h*w, c)
     pred_noisy = pred_noisy.view(b, h*w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
 
-    # loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_norm_prob, label.view(b, h, w).long())
-    loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long())
-    regularisation = 0.5*F.mse_loss(pred_noisy, pred_norm_prob) + 0.5*F.mse_loss(pred_norm_prob, pred_noisy)
+    loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_norm_prob, label.view(b, h, w).long())
+    # loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long())
+    regularisation = torch.trace(torch.transpose(torch.sum(cm, dim=0), 0, 1)).sum() / (b * h * w)
     loss += regularisation
 
     kld_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
