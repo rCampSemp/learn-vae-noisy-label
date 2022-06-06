@@ -7,7 +7,7 @@ torch.backends.cudnn.deterministic = True
 # =======================================
 
 
-def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, alpha=1.0):
+def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, alpha=1.0):
     """ This function defines the proposed trace regularised loss function, suitable for either binary
     or multi-class segmentation task. Essentially, each pixel has a confusion matrix.
 
@@ -58,12 +58,18 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, alpha=1.0):
     pred_noisy = torch.bmm(cm, pred_norm).view(b*h*w, c)
     pred_noisy = pred_noisy.view(b, h*w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
 
-    loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_norm_prob, label.view(b, h, w).long())
-    # loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long())
-    regularisation = torch.trace(torch.transpose(torch.sum(cm, dim=0), 0, 1)).sum() / (b * h * w)
-    loss += regularisation
-
-    kld_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
+    if epoch < 5:
+        loss = nn.CrossEntropyLoss(reduction='mean')(pred_norm_prob, label.view(b, h, w).long())
+        # loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long())
+        # regularisation = torch.trace(torch.transpose(torch.sum(cm, dim=0), 0, 1)).sum() / (b * h * w)
+        # loss += regularisation
+        kld_loss = 0
+    else:
+        loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long())
+        # loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long())
+        # regularisation = torch.trace(torch.transpose(torch.sum(cm, dim=0), 0, 1)).sum() / (b * h * w)
+        # loss += regularisation
+        kld_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
 
     return loss, kld_loss*alpha
 

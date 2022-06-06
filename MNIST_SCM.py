@@ -175,9 +175,9 @@ if __name__ == '__main__':
             # loss: total loss
             # loss_ce: main cross entropy loss
             # loss_trace: regularisation loss
-            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits, stochastic_cm, mean, logvar, labels_all, alpha)
+            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits, stochastic_cm, mean, logvar, labels_all, epoch, alpha)
             # print(images.size())
-            loss = seg_loss + kldloss + 1*F.mse_loss(images.view(-1), reconstruction.view(-1))
+            loss = seg_loss + kldloss
             # calculate the gradients:
             loss.backward()
             # update weights in model:
