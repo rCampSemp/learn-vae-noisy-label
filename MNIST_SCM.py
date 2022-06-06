@@ -36,7 +36,7 @@ if __name__ == '__main__':
     alpha = 2.0  # weight of the trace regularisation of learnt confusion matrices
     num_epochs = 40  # total epochs
     latent = 512
-    learning_rate = 1e-3  # learning rate
+    learning_rate = 1e-2  # learning rate
     ramp_up = 0.1
 
     # image resolution:
@@ -169,13 +169,10 @@ if __name__ == '__main__':
             # model has two outputs:
             # first one is the probability map for true ground truth
             # second one is a list collection of probability maps for different noisy ground truths
-            outputs_logits, stochastic_cm, reconstruction, mean, logvar = model(images)
+            outputs_logits, stochastic_cm, mean, logvar = model(images)
             # outputs = 0.9*outputs + 0.1*outputs_logits
 
             # calculate loss:
-            # loss: total loss
-            # loss_ce: main cross entropy loss
-            # loss_trace: regularisation loss
             seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits, stochastic_cm, mean, logvar, labels_all, epoch, num_epochs, ramp_up, alpha)
             # print(images.size())
             loss = seg_loss + kldloss
@@ -188,8 +185,6 @@ if __name__ == '__main__':
             train_iou = segmentation_scores(labels_good.cpu().detach().numpy(), train_output.cpu().detach().numpy(), class_no)
             running_loss += seg_loss
             running_kld_loss += kldloss
-            #         running_loss_ce += loss_ce
-            #         running_loss_trace += loss_trace
             running_iou += train_iou
 
             if (j + 1) == 1:
@@ -220,7 +215,7 @@ if __name__ == '__main__':
     model.eval()
     for i, (v_images, labels_over, labels_under, labels_wrong, labels_good, imagename) in enumerate(testloader):
         v_images = v_images.to(device=device, dtype=torch.float32)
-        v_outputs_logits_original, v_outputs_logits_noisy, _, __, ___ = model(v_images)
+        v_outputs_logits_original, v_stochastic_cm, _, __ = model(v_images)
         b, c, h, w = v_outputs_logits_original.size()
         # plot the final segmentation map
         v_outputs_logits_original = nn.Softmax(dim=1)(v_outputs_logits_original)

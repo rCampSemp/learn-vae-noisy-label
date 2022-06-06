@@ -91,9 +91,9 @@ class UNet_SCM(nn.Module):
         y_t = self.conv_last(y)
         mu, logvar = self.scm_encoder(y)
         z = self.reparameterize(mu, logvar)
-        cm, recon = self.scm_decoder(z)
+        cm = self.scm_decoder(z)
 
-        return y_t, cm, recon, mu, logvar
+        return y_t, cm, mu, logvar
 
 
 class scm_encoder(nn.Module):
@@ -129,11 +129,8 @@ class scm_decoder(nn.Module):
 
     def forward(self, x):
         cm = self.mlp_cm(x)
-        # recon = self.mlp_recon(self.act(cm))
-        # recon = self.act(recon)
-        recon = None
 
-        return cm, recon
+        return cm
 
 
 def double_conv(in_channels, out_channels, step, norm):
