@@ -50,7 +50,7 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, alpha=1.0):
 
     # normalisation along the rows:
     # cm = cm / cm.sum(1, keepdim=True)
-    cm = torch.softmax(cm, dim=1)
+    cm = torch.softmax(cm / 2, dim=1)
 
     # matrix multiplication to calculate the predicted noisy segmentation:
     # cm: b*h*w x c x c
