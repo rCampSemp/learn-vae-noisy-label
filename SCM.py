@@ -64,6 +64,13 @@ class UNet_SCM(nn.Module):
         eps = torch.randn_like(std)
         return eps * std + mu
 
+    def sample(self, num_samples):
+        # num_samples will be used as the same shape as the z in forward function
+        z = torch.randn(num_samples)
+        z = z.to(device)
+        cms = self.scm_decoder(z)
+        return cms
+
     def forward(self, x):
 
         y = x
