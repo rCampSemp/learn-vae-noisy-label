@@ -33,10 +33,11 @@ if __name__ == '__main__':
 
     # hyper-parameters for training:
     train_batchsize = 5  # batch size
-    alpha = 1.0  # weight of the trace regularisation of learnt confusion matrices
+    alpha = 2.0  # weight of the trace regularisation of learnt confusion matrices
     num_epochs = 40  # total epochs
     latent = 512
     learning_rate = 1e-3  # learning rate
+    ramp_up = 0.4
 
     # image resolution:
     mnist_resolution = 28
@@ -175,7 +176,7 @@ if __name__ == '__main__':
             # loss: total loss
             # loss_ce: main cross entropy loss
             # loss_trace: regularisation loss
-            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits, stochastic_cm, mean, logvar, labels_all, epoch, num_epochs, alpha)
+            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits, stochastic_cm, mean, logvar, labels_all, epoch, num_epochs, ramp_up, alpha)
             # print(images.size())
             loss = seg_loss + kldloss
             # calculate the gradients:

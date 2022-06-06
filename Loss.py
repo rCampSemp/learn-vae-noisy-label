@@ -7,7 +7,7 @@ torch.backends.cudnn.deterministic = True
 # =======================================
 
 
-def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch, alpha=1.0):
+def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch, ramp_up=0.5, alpha=1.0):
     """ This function defines the proposed trace regularised loss function, suitable for either binary
     or multi-class segmentation task. Essentially, each pixel has a confusion matrix.
 
@@ -58,10 +58,11 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch
     pred_noisy = torch.bmm(cm, pred_norm).view(b*h*w, c)
     pred_noisy = pred_noisy.view(b, h*w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
 
-    if epoch < total_epoch // 2:
-        beta_current = epoch * 1 / (total_epoch // 2)
+    ramp_up_threshold = int(total_epoch*ramp_up)
+    if epoch < ramp_up_threshold:
+        beta_current = epoch / ramp_up_threshold
         loss = beta_current*nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long()) + (1 - beta_current)*nn.CrossEntropyLoss(reduction='mean')(pred_norm_prob, label.view(b, h, w).long())
-        kld_loss = alpha * epoch * 1 / (total_epoch // 2) * torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
+        kld_loss = alpha * (epoch / ramp_up_threshold) * torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
     else:
         loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long())
         kld_loss = alpha*torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
