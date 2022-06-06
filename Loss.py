@@ -60,7 +60,7 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, alpha=1.0):
 
     # loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_norm_prob, label.view(b, h, w).long())
     loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long())
-    regularisation = 0.5*F.mse_loss(pred_noisy.detach(), pred_norm_prob) + 0.5*F.mse_loss(pred_norm_prob.detach(), pred_noisy)
+    regularisation = 0.5*F.mse_loss(pred_noisy, pred_norm_prob) + 0.5*F.mse_loss(pred_norm_prob, pred_noisy)
     loss += regularisation
 
     kld_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
