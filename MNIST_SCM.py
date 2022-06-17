@@ -33,7 +33,7 @@ if __name__ == '__main__':
 
     # hyper-parameters for training:
     train_batchsize = 5  # batch size
-    alpha = 10.0  # weight of the trace regularisation of learnt confusion matrices
+    alpha = 0.1  # weight of the kl loss
     num_epochs = 40  # total epochs
     latent = 512
     learning_rate = 1e-3  # learning rate DO NOT USE 1E-2!!
