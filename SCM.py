@@ -130,12 +130,12 @@ class scm_decoder(nn.Module):
         self.w = w
         self.h = h
         self.class_no = class_no
-        self.mlp_cm = nn.Linear(latent, h*w*class_no**2)
-        # self.mlp_recon = nn.Linear(h*w*class_no**2, c * h * w)
-        # self.act = nn.ReLU(inplace=True)
+        self.mlp_cm = nn.Linear(latent, h*w*class_no**2) # pixel wise
+        # self.mlp_cm = nn.Linear(latent, class_no ** 2) # global
 
     def forward(self, x):
         cm = self.mlp_cm(x)
+        cm = F.softplus(cm)
 
         return cm
 

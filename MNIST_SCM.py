@@ -33,8 +33,8 @@ if __name__ == '__main__':
 
     # hyper-parameters for training:
     train_batchsize = 5  # batch size
-    alpha = 0.1  # weight of the kl loss
-    num_epochs = 40  # total epochs
+    alpha = 1.0  # weight of the kl loss
+    num_epochs = 100  # total epochs
     latent = 512
     learning_rate = 1e-3  # learning rate DO NOT USE 1E-2!!
     ramp_up = 0.1 # This ramp up is necessary!!!
@@ -181,7 +181,14 @@ if __name__ == '__main__':
             # update weights in model:
             optimizer.step()
 
-            _, train_output = torch.max(outputs_logits, dim=1)
+            # Now outputs_logits is the noisy seg:
+            pred_norm_prob_noisy = nn.Softmax(dim=1)(outputs_logits)
+            anti_corrpution_cm = stochastic_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
+            anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
+            outputs_clean = torch.bmm(anti_corrpution_cm, pred_norm_prob_noisy).view(b * h * w, c)
+            outputs_clean = outputs_clean.view(b, h * w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
+
+            _, train_output = torch.max(outputs_clean, dim=1)
             train_iou = segmentation_scores(labels_good.cpu().detach().numpy(), train_output.cpu().detach().numpy(), class_no)
             running_loss += seg_loss
             running_kld_loss += kldloss
@@ -218,7 +225,14 @@ if __name__ == '__main__':
         v_outputs_logits_original, v_stochastic_cm, _, __ = model(v_images)
         b, c, h, w = v_outputs_logits_original.size()
         # plot the final segmentation map
-        v_outputs_logits_original = nn.Softmax(dim=1)(v_outputs_logits_original)
+
+        pred_norm_prob_noisy = nn.Softmax(dim=1)(v_outputs_logits_original)
+        anti_corrpution_cm = v_stochastic_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
+        anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
+        outputs_clean = torch.bmm(anti_corrpution_cm, pred_norm_prob_noisy).view(b * h * w, c)
+        v_outputs_logits_original = outputs_clean.view(b, h * w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
+
+        # v_outputs_logits_original = nn.Softmax(dim=1)(v_outputs_logits_original)
         _, v_outputs_logits = torch.max(v_outputs_logits_original, dim=1)
 
         save_name = save_path_visual_result + '/test_' + str(i) + '_seg.png'
