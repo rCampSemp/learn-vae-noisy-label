@@ -7,7 +7,7 @@ torch.backends.cudnn.deterministic = True
 # =======================================
 
 
-def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch, ramp_up=0.5, alpha=1.0):
+def deterministic_noisy_label_loss(pred, cm, labels, epoch, total_epoch, ramp_up=0.5):
     """
     Under construction
     """
@@ -46,8 +46,8 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch
     anti_corrpution_cm = cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
 
     # normalisation along the rows:
-    # anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
-    anti_corrpution_cm = torch.softmax(anti_corrpution_cm, dim=1)
+    anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
+    # anti_corrpution_cm = torch.softmax(anti_corrpution_cm, dim=1)
 
     # matrix multiplication to calculate the predicted noisy segmentation:
     # cm: b*h*w x c x c
@@ -55,20 +55,25 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch
     pred_clean = torch.bmm(anti_corrpution_cm, pred_noisy).view(b*h*w, c)
     pred_clean = pred_clean.view(b, h*w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
 
-    # ramp_up_threshold = int(total_epoch*ramp_up)
+    _, pseudo_labels = torch.max(pred, dim=1)
+    ramp_up_threshold = int(total_epoch*ramp_up)
 
-    loss = nn.CrossEntropyLoss(reduction='mean')(pred, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_clean, label.view(b, h, w).long())
-    kld_loss = alpha*torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
+    # loss = nn.CrossEntropyLoss(reduction='mean')(pred, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_clean, pseudo_labels.long())
+    # loss += 1*torch.trace(torch.transpose(torch.sum(anti_corrpution_cm, dim=0), 0, 1)).sum() / (b * h * w)
+    # kld_loss = alpha*torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
+    # kld_loss = 0
 
-    # if epoch < ramp_up_threshold:
-    #     beta_current = epoch / ramp_up_threshold
-    #     # loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long())
-    #     # print(pred_norm.size())
-    #     loss = beta_current*nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long()) + (1 - beta_current)*nn.CrossEntropyLoss(reduction='mean')(pred_norm_prob, label.view(b, h, w).long())
-    #     kld_loss = alpha * (epoch / ramp_up_threshold) * torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
-    # else:
-    #     loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long())
-    #     kld_loss = alpha*torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
+    if epoch < ramp_up_threshold:
+        beta_current = epoch / ramp_up_threshold
+        # loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long())
+        # print(pred_norm.size())
+        loss = beta_current*nn.CrossEntropyLoss(reduction='mean')(pred, label.view(b, h, w).long()) + (1 - beta_current)*nn.CrossEntropyLoss(reduction='mean')(pred_clean, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_clean, pseudo_labels.long())
+        # kld_loss = alpha * (epoch / ramp_up_threshold) * torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
+        kld_loss = 0
+    else:
+        loss = nn.CrossEntropyLoss(reduction='mean')(pred, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_clean, pseudo_labels.long())
+        # kld_loss = alpha*torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
+        kld_loss = 0
 
     return loss, kld_loss
 

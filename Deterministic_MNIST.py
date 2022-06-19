@@ -10,13 +10,13 @@ import torch.optim as optim
 from torch.utils import data
 import matplotlib.pyplot as plt
 from tensorboardX import SummaryWriter
-from Loss import stochastic_noisy_label_loss
+from Deterministic_Loss import deterministic_noisy_label_loss
 from Utilis import segmentation_scores, CustomDataset_punet, calculate_cm
 from Utilis import evaluate
 from torch.nn import functional as F
 
 # our proposed model:
-from SCM import UNet_SCM
+from Deterministic_CM import UNet_DCM
 from PIL import Image
 
 
@@ -32,12 +32,12 @@ if __name__ == '__main__':
     class_no = 2  # class number, 2 for binary
 
     # hyper-parameters for training:
-    train_batchsize = 4  # batch size
+    train_batchsize = 5  # batch size
     alpha = 1.0  # weight of the kl loss
     num_epochs = 40  # total epochs
     latent = 512
     learning_rate = 1e-3  # learning rate DO NOT USE 1E-2!!
-    ramp_up = 0.1 # This ramp up is necessary!!!
+    ramp_up = 0.5 # This ramp up is necessary!!!
 
     # image resolution:
     mnist_resolution = 28
@@ -72,7 +72,7 @@ if __name__ == '__main__':
     images = np.mean(images, axis=0)
 
     # call model:
-    model = UNet_SCM(in_ch=input_dim,
+    model = UNet_DCM(in_ch=input_dim,
                      resolution=mnist_resolution,
                      width=width,
                      depth=depth,
@@ -83,7 +83,7 @@ if __name__ == '__main__':
                      norm='in')
 
     # model name for saving:
-    model_name = 'UNet_Conditional_Stochastic_Confusion_Matrices_' + '_width' + str(width) + \
+    model_name = 'UNet_Conditional_Deterministic_Confusion_Matrices_' + '_width' + str(width) + \
                  '_depth' + str(depth) + '_train_batch_' + str(train_batchsize) + \
                  '_alpha_' + str(alpha) + '_e' + str(num_epochs) + \
                  '_lr' + str(learning_rate)
@@ -173,7 +173,7 @@ if __name__ == '__main__':
             # outputs = 0.9*outputs + 0.1*outputs_logits
 
             # calculate loss:
-            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits, stochastic_cm, mean, logvar, labels_all, epoch, num_epochs, ramp_up, alpha)
+            seg_loss, kldloss = deterministic_noisy_label_loss(outputs_logits, stochastic_cm, labels_all, epoch, num_epochs, ramp_up)
             # print(images.size())
             loss = seg_loss + kldloss
             # calculate the gradients:

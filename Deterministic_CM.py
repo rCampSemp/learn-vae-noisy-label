@@ -8,7 +8,7 @@ from torch.distributions import Normal, Independent, kl
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-class UNet_SCM(nn.Module):
+class UNet_DCM(nn.Module):
     """ Proposed method containing a segmentation network and a confusion matrix network.
     The segmentation network is U-net. The confusion  matrix network is defined in cm_layers
 
@@ -21,7 +21,7 @@ class UNet_SCM(nn.Module):
         # width: number of channels in the first encoder
         # depth: down-sampling stages - 1
         # ===============================================================================
-        super(UNet_SCM, self).__init__()
+        super(UNet_DCM, self).__init__()
         self.depth = depth
         self.noisy_labels_no = 4
         self.final_in = class_no
@@ -96,11 +96,13 @@ class UNet_SCM(nn.Module):
             y = self.decoders[-(i+1)](y)
 
         y_t = self.conv_last(y)
-        mu, logvar = self.scm_encoder(y)
-        z = self.reparameterize(mu, logvar)
-        cm = self.scm_decoder(z)
+        # mu, logvar = self.scm_encoder(y)
+        cm = self.scm_encoder(y)
+        # z = self.reparameterize(mu, logvar)
+        # cm = self.scm_decoder(z)
+        cm = self.scm_decoder(cm)
 
-        return y_t, cm, mu, logvar
+        return y_t, cm, 0, 0
 
 
 class scm_encoder(nn.Module):
@@ -108,16 +110,19 @@ class scm_encoder(nn.Module):
     """
     def __init__(self, c, h, w, latent):
         super(scm_encoder, self).__init__()
-        self.fc_mu = nn.Linear(c*h*w, latent)
-        self.fc_var = nn.Linear(c*h*w, latent)
+        # self.fc_mu = nn.Linear(c*h*w, latent)
+        # self.fc_var = nn.Linear(c*h*w, latent)
+        self.fc = nn.Linear(c * h * w, latent)
 
     def forward(self, x):
         # print(x.size())
         y = torch.flatten(x, start_dim=1)
-        mu = self.fc_mu(y)
-        var = self.fc_var(y)
+        y = self.fc(y)
+        # mu = self.fc_mu(y)
+        # var = self.fc_var(y)
 
-        return mu, var
+        # return mu, var
+        return y
 
 
 class scm_decoder(nn.Module):
