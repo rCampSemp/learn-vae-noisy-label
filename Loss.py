@@ -22,10 +22,10 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch
     # pred_norm_prob = nn.Softmax(dim=1)(pred.view(b, c, h, w))
 
     # without calibration
-    pred_norm_prob_noisy = nn.Softmax(dim=1)(pred)
+    # pred_norm_prob_noisy = nn.Softmax(dim=1)(pred)
 
     # b*c x h*w ---> b*h*w x c x 1
-    pred_noisy = pred_norm_prob_noisy.view(b, c, h*w).permute(0, 2, 1).contiguous().view(b*h*w, c, 1)
+    pred_noisy = pred.view(b, c, h*w).permute(0, 2, 1).contiguous().view(b*h*w, c, 1)
 
     # cm: learnt confusion matrix for each noisy label, b x c**2 x h x w
     # label_noisy: noisy label, b x h x w
@@ -46,8 +46,8 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch
     anti_corrpution_cm = cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
 
     # normalisation along the rows:
-    anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
-    # cm = torch.softmax(cm, dim=1)
+    # anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
+    anti_corrpution_cm = torch.softmax(anti_corrpution_cm, dim=1)
 
     # matrix multiplication to calculate the predicted noisy segmentation:
     # cm: b*h*w x c x c
@@ -57,7 +57,7 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch
 
     # ramp_up_threshold = int(total_epoch*ramp_up)
 
-    loss = nn.CrossEntropyLoss(reduction='mean')(pred_norm_prob_noisy, label.view(b, h, w).long()) - torch.sum(torch.log(pred_clean))
+    loss = nn.CrossEntropyLoss(reduction='mean')(pred, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_clean, label.view(b, h, w).long())
     kld_loss = alpha*torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
 
     # if epoch < ramp_up_threshold:

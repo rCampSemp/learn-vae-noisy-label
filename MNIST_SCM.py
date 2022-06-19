@@ -32,9 +32,9 @@ if __name__ == '__main__':
     class_no = 2  # class number, 2 for binary
 
     # hyper-parameters for training:
-    train_batchsize = 5  # batch size
+    train_batchsize = 4  # batch size
     alpha = 1.0  # weight of the kl loss
-    num_epochs = 100  # total epochs
+    num_epochs = 40  # total epochs
     latent = 512
     learning_rate = 1e-3  # learning rate DO NOT USE 1E-2!!
     ramp_up = 0.1 # This ramp up is necessary!!!
@@ -182,11 +182,13 @@ if __name__ == '__main__':
             optimizer.step()
 
             # Now outputs_logits is the noisy seg:
-            pred_norm_prob_noisy = nn.Softmax(dim=1)(outputs_logits)
-            anti_corrpution_cm = stochastic_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
-            anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
-            outputs_clean = torch.bmm(anti_corrpution_cm, pred_norm_prob_noisy).view(b * h * w, c)
-            outputs_clean = outputs_clean.view(b, h * w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
+            b_, c_, h_, w_ = outputs_logits.size()
+            # pred_norm_prob_noisy = nn.Softmax(dim=1)(outputs_logits)
+            pred_noisy = outputs_logits.view(b_, c_, h_ * w_).permute(0, 2, 1).contiguous().view(b_ * h_ * w_, c_, 1)
+            anti_corrpution_cm = stochastic_cm.view(b_, c_ ** 2, h_ * w_).permute(0, 2, 1).contiguous().view(b_ * h_ * w_, c_ * c_).view(b_ * h_ * w_, c_, c_)
+            anti_corrpution_cm = torch.softmax(anti_corrpution_cm, dim=1)
+            outputs_clean = torch.bmm(anti_corrpution_cm, pred_noisy).view(b_ * h_ * w_, c_)
+            outputs_clean = outputs_clean.view(b_, h_ * w_, c_).permute(0, 2, 1).contiguous().view(b_, c_, h_, w_)
 
             _, train_output = torch.max(outputs_clean, dim=1)
             train_iou = segmentation_scores(labels_good.cpu().detach().numpy(), train_output.cpu().detach().numpy(), class_no)
@@ -226,10 +228,15 @@ if __name__ == '__main__':
         b, c, h, w = v_outputs_logits_original.size()
         # plot the final segmentation map
 
-        pred_norm_prob_noisy = nn.Softmax(dim=1)(v_outputs_logits_original)
+        # print(v_stochastic_cm.size())
+        # pred_norm_prob_noisy = nn.Softmax(dim=1)(v_outputs_logits_original)
+        pred_noisy = v_outputs_logits_original.view(b, c, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c, 1)
         anti_corrpution_cm = v_stochastic_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
+        # anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
         anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
-        outputs_clean = torch.bmm(anti_corrpution_cm, pred_norm_prob_noisy).view(b * h * w, c)
+
+        # pred_norm_prob_noisy = pred_norm_prob_noisy.view(b, c, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c, 1)
+        outputs_clean = torch.bmm(anti_corrpution_cm, pred_noisy).view(b * h * w, c)
         v_outputs_logits_original = outputs_clean.view(b, h * w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
 
         # v_outputs_logits_original = nn.Softmax(dim=1)(v_outputs_logits_original)
