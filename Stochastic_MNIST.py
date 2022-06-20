@@ -33,11 +33,11 @@ if __name__ == '__main__':
 
     # hyper-parameters for training:
     train_batchsize = 5  # batch size
-    alpha = 0.1  # weight of the kl loss
-    num_epochs = 500  # total epochs
-    latent = 512
+    alpha = 5.0  # weight of the kl loss
+    num_epochs = 100  # total epochs
+    latent = 16
     learning_rate = 1e-3  # learning rate DO NOT USE 1E-2!!
-    ramp_up = 0.5 # This ramp up is necessary!!!
+    ramp_up = 0.2 # This ramp up is necessary!!!
 
     # image resolution:
     mnist_resolution = 28

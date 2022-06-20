@@ -29,8 +29,11 @@ class UNet_SCM(nn.Module):
         self.decoders = nn.ModuleList()
         self.encoders = nn.ModuleList()
 
-        self.vae_encoder = scm_encoder(c=width, h=resolution, w=resolution, latent=latent)
-        self.vae_decoder = scm_decoder(c=input_dim, h=resolution, w=resolution, class_no=class_no, latent=latent, batch=batch_size)
+        # print(width*(2**(depth-1)))
+        # print(resolution // (2**(depth-1)))
+
+        self.vae_encoder = scm_encoder(c=width*(2**(depth-2)), h=resolution // (2**(depth-1)), w=resolution // (2**(depth-1)), latent=latent)
+        self.vae_decoder = scm_decoder(c=width*(2**(depth-2)), h=resolution // (2**(depth-1)), w=resolution // (2**(depth-1)), latent=latent)
 
         for i in range(self.depth):
             if i == 0:
@@ -44,8 +47,9 @@ class UNet_SCM(nn.Module):
                 self.decoders.append(double_conv(in_channels=width*(2**i), out_channels=width*(2**(i - 1)), step=1, norm=norm))
 
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        # self.conv_last = nn.Conv2d(width, self.final_in, 1, bias=True)
-        self.conv_last = seg_head(c=width, h=resolution, w=resolution, class_no=class_no, latent=latent)
+        self.conv_last = nn.Conv2d(width, self.final_in, 1, bias=True)
+        self.conv_cm = nn.Conv2d(width, class_no**2, 1, bias=True)
+        # self.conv_last = seg_head(c=width, h=resolution, w=resolution, class_no=class_no, latent=latent)
 
     def reparameterize(self, mu, logvar):
         """
@@ -76,6 +80,8 @@ class UNet_SCM(nn.Module):
             y = self.encoders[i](y)
             encoder_features.append(y)
 
+        # print(y.size())
+
         mu, logvar = self.vae_encoder(y)
         z = self.reparameterize(mu, logvar)
         y = self.vae_decoder(z)
@@ -94,9 +100,10 @@ class UNet_SCM(nn.Module):
             y = torch.cat([y_e, y], dim=1)
             y = self.decoders[-(i+1)](y)
 
+        seg = self.conv_last(y)
+        cm = self.conv_cm(y)
 
-
-        return y_t, cm, mu, logvar
+        return seg, cm, mu, logvar
 
 
 class scm_encoder(nn.Module):
@@ -119,30 +126,30 @@ class scm_decoder(nn.Module):
     Essentially, it share the semantic features with the segmentation network, but the output of annotator network
     has the size (b, c**2, h, w)
     """
-    def __init__(self, c, h, w, class_no=2, latent=512, batch=5):
+    def __init__(self, c, h, w, latent=512):
         super(scm_decoder, self).__init__()
         self.w = w
         self.h = h
-        self.b = batch
-        self.class_no = class_no
-        self.mlp_seg = nn.Linear(latent, h*w*class_no)
+        self.c = c
+        self.mlp_seg = nn.Linear(latent, h*w*c)
 
     def forward(self, x):
         y = self.mlp_seg(x)
-        return y.reshape(-1, self.class_no, self.h, self.w)
+        return y.reshape(-1, self.c, self.h, self.w)
 
-
-class seg_head(nn.Module):
-    def __init__(self, c, h, w, class_no, latent):
-        super(seg_head, self).__init__()
-        self.encoder = nn.Linear(c*h*w, latent)
-        self.decoder = nn.Linear(latent, h*w*class_no**2)
-    def forward(self, x):
-        y = torch.flatten(x, start_dim=1)
-        y = self.encoder(y)
-        y = F.relu(y, inplace=True)
-        y = self.decoder(y)
-        return y
+#
+# class seg_head(nn.Module):
+#     def __init__(self, c, h, w, class_no, latent):
+#         super(seg_head, self).__init__()
+#         self.encoder = nn.Linear(c*h*w, latent)
+#         self.decoder = nn.Linear(latent, h*w*class_no**2)
+#
+#     def forward(self, x):
+#         y = torch.flatten(x, start_dim=1)
+#         y = self.encoder(y)
+#         y = F.relu(y, inplace=True)
+#         y = self.decoder(y)
+#         return y
 
 
 def double_conv(in_channels, out_channels, step, norm):
