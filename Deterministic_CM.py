@@ -13,7 +13,7 @@ class UNet_DCM(nn.Module):
     The segmentation network is U-net. The confusion  matrix network is defined in cm_layers
 
     """
-    def __init__(self, in_ch, resolution, batch_size, input_dim, width, depth, class_no, latent=512, norm='in'):
+    def __init__(self, in_ch, resolution, width, depth, class_no, latent=512, norm='in'):
         #
         # ===============================================================================
         # in_ch: dimension of input
@@ -29,8 +29,7 @@ class UNet_DCM(nn.Module):
         self.decoders = nn.ModuleList()
         self.encoders = nn.ModuleList()
 
-        self.scm_encoder = scm_encoder(c=width, h=resolution, w=resolution, latent=latent)
-        self.scm_decoder = scm_decoder(c=input_dim, h=resolution, w=resolution, class_no=class_no, latent=latent)
+        self.cm_network = cm_net(c=width, h=resolution, w=resolution, class_no=class_no, latent=latent)
 
         for i in range(self.depth):
 
@@ -51,25 +50,6 @@ class UNet_DCM(nn.Module):
 
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv_last = nn.Conv2d(width, self.final_in, 1, bias=True)
-
-    def reparameterize(self, mu, logvar):
-        """
-        Will a single z be enough ti compute the expectation
-        for the loss??
-        :param mu: (Tensor) Mean of the latent Gaussian
-        :param logvar: (Tensor) Standard deviation of the latent Gaussian
-        :return:
-        """
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return eps * std + mu
-
-    def sample(self, num_samples):
-        # num_samples will be used as the same shape as the z in forward function
-        z = torch.randn(num_samples)
-        z = z.to(device)
-        cms = self.scm_decoder(z)
-        return cms
 
     def forward(self, x):
 
@@ -96,52 +76,25 @@ class UNet_DCM(nn.Module):
             y = self.decoders[-(i+1)](y)
 
         y_t = self.conv_last(y)
-        # mu, logvar = self.scm_encoder(y)
-        cm = self.scm_encoder(y)
-        # z = self.reparameterize(mu, logvar)
-        # cm = self.scm_decoder(z)
-        cm = self.scm_decoder(cm)
+        cm = self.cm_network(y)
 
-        return y_t, cm, 0, 0
+        return y_t, cm
 
 
-class scm_encoder(nn.Module):
+class cm_net(nn.Module):
     """ This class defines the stochastic annotator network
     """
-    def __init__(self, c, h, w, latent):
-        super(scm_encoder, self).__init__()
-        # self.fc_mu = nn.Linear(c*h*w, latent)
-        # self.fc_var = nn.Linear(c*h*w, latent)
-        self.fc = nn.Linear(c * h * w, latent)
-
-    def forward(self, x):
-        # print(x.size())
-        y = torch.flatten(x, start_dim=1)
-        y = self.fc(y)
-        # mu = self.fc_mu(y)
-        # var = self.fc_var(y)
-
-        # return mu, var
-        return y
-
-
-class scm_decoder(nn.Module):
-    """ This class defines the annotator network, which models the confusion matrix.
-    Essentially, it share the semantic features with the segmentation network, but the output of annotator network
-    has the size (b, c**2, h, w)
-    """
     def __init__(self, c, h, w, class_no=2, latent=512):
-        super(scm_decoder, self).__init__()
-        self.w = w
-        self.h = h
-        self.class_no = class_no
-        self.mlp_cm = nn.Linear(latent, h*w*class_no**2) # pixel wise
-        # self.mlp_cm = nn.Linear(latent, class_no ** 2) # global
+        super(cm_net, self).__init__()
+        self.fc_encoder = nn.Linear(c * h * w, latent)
+        self.fc_decoder = nn.Linear(latent, h * w * class_no ** 2)
 
     def forward(self, x):
-        cm = self.mlp_cm(x)
+        cm = torch.flatten(x, start_dim=1)
+        cm = self.fc_encoder(cm)
+        cm = F.relu(cm, inplace=True)
+        cm = self.fc_decoder(cm)
         cm = F.softplus(cm)
-
         return cm
 
 

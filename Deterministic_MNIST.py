@@ -33,11 +33,9 @@ if __name__ == '__main__':
 
     # hyper-parameters for training:
     train_batchsize = 5  # batch size
-    alpha = 1.0  # weight of the kl loss
     num_epochs = 40  # total epochs
-    latent = 512
     learning_rate = 1e-3  # learning rate DO NOT USE 1E-2!!
-    ramp_up = 0.2 # This ramp up is necessary!!!
+    ramp_up = 0.0 # This ramp up is necessary!!!
 
     # image resolution:
     mnist_resolution = 28
@@ -76,16 +74,15 @@ if __name__ == '__main__':
                      resolution=mnist_resolution,
                      width=width,
                      depth=depth,
-                     latent=latent,
-                     batch_size=train_batchsize,
-                     input_dim=input_dim,
+                     latent=512,
                      class_no=class_no,
                      norm='in')
 
     # model name for saving:
     model_name = 'UNet_Conditional_Deterministic_Confusion_Matrices_' + '_width' + str(width) + \
                  '_depth' + str(depth) + '_train_batch_' + str(train_batchsize) + \
-                 '_alpha_' + str(alpha) + '_e' + str(num_epochs) + \
+                 '_epoch' + str(num_epochs) + \
+                 '_ramp' + str(ramp_up) + \
                  '_lr' + str(learning_rate)
 
     # setting up device:
@@ -169,13 +166,11 @@ if __name__ == '__main__':
             # model has two outputs:
             # first one is the probability map for true ground truth
             # second one is a list collection of probability maps for different noisy ground truths
-            outputs_logits, stochastic_cm, mean, logvar = model(images)
+            outputs_logits, stochastic_cm = model(images)
             # outputs = 0.9*outputs + 0.1*outputs_logits
 
             # calculate loss:
-            seg_loss, kldloss = deterministic_noisy_label_loss(outputs_logits, stochastic_cm, labels_all, epoch, num_epochs, ramp_up)
-            # print(images.size())
-            loss = seg_loss + kldloss
+            loss = deterministic_noisy_label_loss(outputs_logits, stochastic_cm, labels_all, epoch, num_epochs, ramp_up)
             # calculate the gradients:
             loss.backward()
             # update weights in model:
@@ -192,8 +187,7 @@ if __name__ == '__main__':
 
             _, train_output = torch.max(outputs_clean, dim=1)
             train_iou = segmentation_scores(labels_good.cpu().detach().numpy(), train_output.cpu().detach().numpy(), class_no)
-            running_loss += seg_loss
-            running_kld_loss += kldloss
+            running_loss += loss
             running_iou += train_iou
 
             if (j + 1) == 1:
@@ -205,14 +199,11 @@ if __name__ == '__main__':
                 print(
                     'Step [{}/{}], '
                     'Train dice: {:.4f},'
-                    'loss main: {:.4f},'
-                    'loss kl: {:.4f},'.format(epoch + 1, num_epochs,
+                    'loss main: {:.4f},'.format(epoch + 1, num_epochs,
                                               train_iou,
-                                              running_loss / (j + 1),
-                                              running_kld_loss / (j + 1)))
+                                              running_loss / (j + 1)))
 
                 writer.add_scalars('scalars', {'train main loss': running_loss / (j + 1),
-                                               'train kld loss': running_kld_loss / (j + 1),
                                                'train iou': running_iou / (j + 1)}, epoch + 1)
 
     # save model:
@@ -224,7 +215,7 @@ if __name__ == '__main__':
     model.eval()
     for i, (v_images, labels_over, labels_under, labels_wrong, labels_good, imagename) in enumerate(testloader):
         v_images = v_images.to(device=device, dtype=torch.float32)
-        v_outputs_logits_original, v_stochastic_cm, _, __ = model(v_images)
+        v_outputs_logits_original, v_stochastic_cm = model(v_images)
         b, c, h, w = v_outputs_logits_original.size()
         # plot the final segmentation map
 
