@@ -1,5 +1,7 @@
 import os
 import errno
+import random
+
 import torch
 import timeit
 import imageio
@@ -33,9 +35,9 @@ if __name__ == '__main__':
 
     # hyper-parameters for training:
     train_batchsize = 5  # batch size
-    alpha = 5.0  # weight of the kl loss
-    num_epochs = 100  # total epochs
-    latent = 16
+    alpha = 1.0  # weight of the kl loss
+    num_epochs = 40  # total epochs
+    latent = 32
     learning_rate = 1e-3  # learning rate DO NOT USE 1E-2!!
     ramp_up = 0.2 # This ramp up is necessary!!!
 
@@ -166,14 +168,15 @@ if __name__ == '__main__':
             labels_all.append(labels_wrong)
             labels_all.append(labels_good)
 
+            label = random.choice(labels_all)
             # model has two outputs:
             # first one is the probability map for true ground truth
             # second one is a list collection of probability maps for different noisy ground truths
-            outputs_logits, stochastic_cm, mean, logvar = model(images)
+            outputs_logits, sampled_outputs_logits, stochastic_cm, mean, logvar = model(images, label)
             # outputs = 0.9*outputs + 0.1*outputs_logits
 
             # calculate loss:
-            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits, stochastic_cm, mean, logvar, labels_all, epoch, num_epochs, ramp_up, alpha)
+            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits, sampled_outputs_logits, stochastic_cm, mean, logvar, label, epoch, num_epochs, ramp_up, alpha)
             # print(images.size())
             loss = seg_loss + kldloss
             # calculate the gradients:
@@ -182,9 +185,9 @@ if __name__ == '__main__':
             optimizer.step()
 
             # Now outputs_logits is the noisy seg:
-            b_, c_, h_, w_ = outputs_logits.size()
+            b_, c_, h_, w_ = sampled_outputs_logits.size()
             # pred_norm_prob_noisy = nn.Softmax(dim=1)(outputs_logits)
-            pred_noisy = outputs_logits.view(b_, c_, h_ * w_).permute(0, 2, 1).contiguous().view(b_ * h_ * w_, c_, 1)
+            pred_noisy = sampled_outputs_logits.view(b_, c_, h_ * w_).permute(0, 2, 1).contiguous().view(b_ * h_ * w_, c_, 1)
             anti_corrpution_cm = stochastic_cm.view(b_, c_ ** 2, h_ * w_).permute(0, 2, 1).contiguous().view(b_ * h_ * w_, c_ * c_).view(b_ * h_ * w_, c_, c_)
             anti_corrpution_cm = torch.softmax(anti_corrpution_cm, dim=1)
             outputs_clean = torch.bmm(anti_corrpution_cm, pred_noisy).view(b_ * h_ * w_, c_)
@@ -224,7 +227,7 @@ if __name__ == '__main__':
     model.eval()
     for i, (v_images, labels_over, labels_under, labels_wrong, labels_good, imagename) in enumerate(testloader):
         v_images = v_images.to(device=device, dtype=torch.float32)
-        v_outputs_logits_original, v_stochastic_cm, _, __ = model(v_images)
+        _, v_outputs_logits_original, v_stochastic_cm, _, __ = model(v_images, _)
         b, c, h, w = v_outputs_logits_original.size()
         # plot the final segmentation map
 

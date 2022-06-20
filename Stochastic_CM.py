@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from torch.distributions import LowRankMultivariateNormal
+
 from Utilis import init_weights, init_weights_orthogonal_normal, l2_regularisation
 from torch.distributions import Normal, Independent, kl
 
@@ -32,8 +34,9 @@ class UNet_SCM(nn.Module):
         # print(width*(2**(depth-1)))
         # print(resolution // (2**(depth-1)))
 
-        self.vae_encoder = scm_encoder(c=width*(2**(depth-2)), h=resolution // (2**(depth-1)), w=resolution // (2**(depth-1)), latent=latent)
-        self.vae_decoder = scm_decoder(c=width*(2**(depth-2)), h=resolution // (2**(depth-1)), w=resolution // (2**(depth-1)), latent=latent)
+        # self.vae_encoder = scm_encoder(c=self.final_in, h=resolution, w=resolution, latent=latent)
+        self.vae_encoder = scm_encoder(c=self.final_in, h=resolution, w=resolution, latent=latent)
+        self.vae_decoder = scm_decoder(c=self.final_in, h=resolution, w=resolution, latent=latent)
 
         for i in range(self.depth):
             if i == 0:
@@ -48,7 +51,8 @@ class UNet_SCM(nn.Module):
 
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv_last = nn.Conv2d(width, self.final_in, 1, bias=True)
-        self.conv_cm = nn.Conv2d(width, class_no**2, 1, bias=True)
+
+        self.conv_cm = nn.Conv2d(self.final_in, class_no**2, 1, bias=True)
         # self.conv_last = seg_head(c=width, h=resolution, w=resolution, class_no=class_no, latent=latent)
 
     def reparameterize(self, mu, logvar):
@@ -61,6 +65,7 @@ class UNet_SCM(nn.Module):
         """
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
+
         return eps * std + mu
 
     def sample(self, num_samples):
@@ -70,7 +75,7 @@ class UNet_SCM(nn.Module):
         cms = self.scm_decoder(z)
         return cms
 
-    def forward(self, x):
+    def forward(self, x, gt):
 
         y = x
         encoder_features = []
@@ -79,12 +84,6 @@ class UNet_SCM(nn.Module):
 
             y = self.encoders[i](y)
             encoder_features.append(y)
-
-        # print(y.size())
-
-        mu, logvar = self.vae_encoder(y)
-        z = self.reparameterize(mu, logvar)
-        y = self.vae_decoder(z)
 
         for i in range(len(encoder_features)):
 
@@ -101,9 +100,19 @@ class UNet_SCM(nn.Module):
             y = self.decoders[-(i+1)](y)
 
         seg = self.conv_last(y)
-        cm = self.conv_cm(y)
+        # conditional_seg = torch.cat(seg, y)
+        if self.vae_encoder.training is True:
+            gt = gt.repeat(1, self.final_in, 1, 1)
+            mu, logvar = self.vae_encoder(gt)
+        else:
+            mu, logvar = self.vae_encoder(seg)
+        z = self.reparameterize(mu, logvar)
+        seg_sample = self.vae_decoder(z)
 
-        return seg, cm, mu, logvar
+        # seg = self.conv_last(y)
+        cm = self.conv_cm(seg)
+
+        return seg, seg_sample, cm, mu, logvar
 
 
 class scm_encoder(nn.Module):
