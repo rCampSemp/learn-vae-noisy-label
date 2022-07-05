@@ -1,6 +1,7 @@
 from distutils.command.config import config
 import os
 import errno
+from tabnanny import verbose
 import pylidc as pl
 import numpy as np
 from pylidc.utils import consensus
@@ -50,35 +51,41 @@ def save_ims(files, truepath, annotpath, scanpath):
         if no_nods > 0:
 
             for nod_idx, nod in enumerate(nods):
-                cmask,cbbox,masks = consensus(nod, clevel=0.5, pad=padding)
+                cmask,cbbox,masks = consensus(nod, clevel=0.5, pad=padding, verbose=False)
                 scan_img = vol[cbbox]
+                numslices = scan_img.shape[2]
+
+                # add channel dim to data  
+                scan_img = np.expand_dims(scan_img, axis=0)
+                cmask = np.expand_dims(cmask, axis=0)
+                for annot in masks:
+                    annot.resize(1, 512, 512, numslices, refcheck=False) #refcheck false to allow resizing referenced array
 
                 # some scans have no slices
                 if sum(scan_img.shape) == 1024:
                     continue
                 
-                # stack each annotation from list of annotations to h x w x annots x slices
-                masks = np.stack(masks, axis=2)
+                # stack each annotation from list of annotations to c x h x w x annots x slices
+                masks = np.stack(masks, axis=3)
 
-
-                for slice_idx in range(scan_img.shape[2]):
-                    if slice_idx > 40 or np.sum(cmask[:,:,slice_idx]) <= mask_threshold:
+                for slice_idx in range(numslices):
+                    if slice_idx > 40 or np.sum(cmask[:,:,:,slice_idx]) <= mask_threshold:
                         continue
                     # save ground truth masks
                     full_store_path_true = os.path.join(truepath, 'pid_' + pid[-4:] + '_nod_' + str(nod_idx) 
                                                             + '_slice_' + str(slice_idx) + '.tif')
-                    imsave(full_store_path_true, cmask[:,:,slice_idx])
+                    imsave(full_store_path_true, cmask[:,:,:,slice_idx])
 
                     #save scan of lung
                     full_store_path_scan = os.path.join(scanpath, 'pid_' + pid[-4:] + '_nod_' + str(nod_idx) 
                                                             + '_slice_' + str(slice_idx) + '.tif')
 
-                    imsave(full_store_path_scan, scan_img[:,:,slice_idx])
+                    imsave(full_store_path_scan, scan_img[:,:,:,slice_idx])
 
                     # save masks per slice with multiple annots along 3rd dim h x w x annots
                     full_store_path_annot = os.path.join(annotpath, 'pid_' + pid[-4:] + '_nod_' + str(nod_idx) 
                                                             + '_slice_' + str(slice_idx) + '.tif')
-                    imsave(full_store_path_annot, masks[:,:,:,slice_idx])
+                    imsave(full_store_path_annot, masks[:,:,:,:,slice_idx])
                 
 
 

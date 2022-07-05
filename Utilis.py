@@ -1246,7 +1246,7 @@ class CustomDataset_LIDC(torch.utils.data.Dataset):
         annot_image = tiff.imread(all_annot_images[index])
         annot_image = np.array(annot_image, dtype='float32')
         #
-        # all 512 x 512
+        # all 1 x 512 x 512
         # data augmentation 
         if self.data_aug is True:
             #
@@ -1254,14 +1254,14 @@ class CustomDataset_LIDC(torch.utils.data.Dataset):
             #
             if aug_thresh > 0.5:   
                 #
-                true_image = np.flip(true_image, axis=0).copy()
                 true_image = np.flip(true_image, axis=1).copy()
+                true_image = np.flip(true_image, axis=2).copy()
                 #
-                image = np.flip(image, axis=0).copy()
                 image = np.flip(image, axis=1).copy()
+                image = np.flip(image, axis=2).copy()
                 #
-                annot_image = np.flip(annot_image, axis=0).copy()
                 annot_image = np.flip(annot_image, axis=1).copy()
+                annot_image = np.flip(annot_image, axis=2).copy()
 
         # name of scan and nodule maybe
         imagename = all_images[index]
