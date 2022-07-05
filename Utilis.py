@@ -1220,6 +1220,63 @@ class CustomDataset_punet(torch.utils.data.Dataset):
         return len(glob.glob(os.path.join(self.image_folder, '*.tif')))
 
 
+class CustomDataset_LIDC(torch.utils.data.Dataset):
+    def __init__(self, dataset_location, augmentation=False):
+        self.annot_path = dataset_location + '/masks/annots'
+        self.truth_path = dataset_location + '/masks/GT'
+        self.scan_path = dataset_location + '/scans'
+        self.data_aug = augmentation
+        #
+    def __getitem__(self, index):
+        all_true_images = glob.glob(os.path.join(self.truth_path, '*.tif'))
+        all_true_images.sort()
+        #
+        all_images = glob.glob(os.path.join(self.scan_path, '*.tif'))
+        all_images.sort()
+        #
+        all_annot_images = glob.glob(os.path.join(self.annot_path, '*.tif'))
+        all_annot_images.sort()
+        #
+        true_image = tiff.imread(all_true_images[index])
+        true_image = np.array(true_image, dtype='float32')
+        #
+        image = tiff.imread(all_images[index])
+        image = np.array(image, dtype='float32')
+        #
+        annot_image = tiff.imread(all_annot_images[index])
+        annot_image = np.array(annot_image, dtype='float32')
+        #
+        # all 512 x 512
+        # data augmentation 
+        if self.data_aug is True:
+            #
+            aug_thresh = random.uniform(0, 1)
+            #
+            if aug_thresh > 0.5:   
+                #
+                true_image = np.flip(true_image, axis=0).copy()
+                true_image = np.flip(true_image, axis=1).copy()
+                #
+                image = np.flip(image, axis=0).copy()
+                image = np.flip(image, axis=1).copy()
+                #
+                annot_image = np.flip(annot_image, axis=0).copy()
+                annot_image = np.flip(annot_image, axis=1).copy()
+
+        # name of scan and nodule maybe
+        imagename = all_images[index]
+        path_image, imagename = os.path.split(imagename)
+        imagename, imageext = os.path.splitext(imagename)
+
+        return image, true_image, annot_image, imagename
+    
+    def __len__(self):
+        # You should change 0 to the total size of your dataset.
+        return len(glob.glob(os.path.join(self.scan_path, '*.tif')))
+
+
+
+
 def truncated_normal_(tensor, mean=0, std=1):
     size = tensor.shape
     tmp = tensor.new_empty(size + (4,)).normal_()
@@ -1420,7 +1477,7 @@ def segmentation_scores(label_trues, label_preds, n_class):
     (area_lab, _) = np.histogram(label_trues, bins=n_class, range=(1, n_class))
     area_union = area_pred + area_lab
     #
-    return ((2 * area_intersection + 1e-6) / (area_union + 1e-6)).mean()
+    return ((area_intersection + 1e-6) / (area_union + 1e-6)).mean()
 
 
 def generalized_energy_distance(all_gts, all_segs, class_no):
