@@ -1275,6 +1275,65 @@ class CustomDataset_LIDC(torch.utils.data.Dataset):
         return len(glob.glob(os.path.join(self.scan_path, '*.tif')))
 
 
+def LIDC_collate(batch):
+    """
+    Function that takes in a batch of data from LIDC custom dataset 
+
+    repeats a random tensor along axis in batch of annotations to create 
+    stacked batch of equal dimensions
+
+    Args:
+        batch (list of tuples of ndarrays): zipped input from batchsize number of LIDC custom dataset data points
+
+    Returns:
+        (tuple): tuple containing:
+
+            b_images (torch.DoubleTensor): stacked batch of slices of patient scans
+            b_true_image (torch.DoubleTensor): stacked batch of slices of ground truth segmentation masks of nodule
+            b_annots (torch.DoubleTensor): stacked batch of slices of annotation segmentation masks associated with nodule
+            b_imagename (tuple): tuple of str associated with batched slices patient of scan annotation 
+    """
+    b_images, b_true_image, b_annots, b_imagename = zip(*batch)
+
+    max_sz = max([annots.shape[3] for annots in b_annots])
+
+    b_lst_annots = []
+
+    # repeat annot in each stack of annots so all annots in batch same dim 
+    for annots in b_annots: 
+        annots = torch.DoubleTensor(annots)
+        annot_sz_to_fill = max_sz - annots.size(dim=3)
+
+        if annot_sz_to_fill == 0:
+            b_lst_annots.append(annots)
+            continue
+
+        annot_to_add = []
+        
+        ann_samples = np.random.choice(annots.size(dim=3), annot_sz_to_fill)
+        for i in ann_samples:
+            annot_to_add.append(annots[:,:,:,i])
+
+        stck_annots_to_add = torch.stack(annot_to_add, 3)
+        stck_annots = torch.cat((annots, stck_annots_to_add), 3)
+        b_lst_annots.append(stck_annots) 
+
+    b_images = [torch.DoubleTensor(images) for images in b_images]
+    b_true_image = [torch.DoubleTensor(true_image) for true_image in b_true_image]
+
+    
+    if len(b_lst_annots) > 1:
+        b_annots = torch.stack(b_lst_annots, 0)
+        b_images = torch.stack(b_images, 0)
+        b_true_image = torch.stack(b_true_image, 0)
+
+    else:
+        b_annots = b_lst_annots[0].unsqueeze(0)
+        b_images = b_images[0].unsqueeze(0)
+        b_true_image = b_true_image[0].unsqueeze(0)
+
+
+    return b_images, b_true_image, b_annots, b_imagename
 
 
 def truncated_normal_(tensor, mean=0, std=1):

@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from tensorboardX import SummaryWriter
 from Deterministic_LIDC_Loss import deterministic_noisy_label_loss
 from Utilis import segmentation_scores, CustomDataset_LIDC, calculate_cm
-from Utilis import evaluate
+from Utilis import LIDC_collate
 from torch.nn import functional as F
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -35,7 +35,7 @@ if __name__ == '__main__':
     class_no = 2  # class number, 2 for binary
 
     # hyper-parameters for training:
-    train_batchsize = 1  # batch size (necessary due to collate-fn issue with trainloader)
+    train_batchsize = 5  # batch size 
     num_epochs = 15  # total epochs
     learning_rate = 1e-3  # learning rate DO NOT USE 1E-2!!
     ramp_up = 0.0 # This ramp up is necessary!!!
@@ -62,7 +62,7 @@ if __name__ == '__main__':
     test_dataset = CustomDataset_LIDC(dataset_location=test_path, augmentation=False)
 
     # putting dataset into data loaders
-    trainloader = data.DataLoader(train_dataset, batch_size=train_batchsize, shuffle=True, num_workers=2, drop_last=True)
+    trainloader = data.DataLoader(train_dataset, batch_size=train_batchsize, shuffle=True, num_workers=2, collate_fn=LIDC_collate, drop_last=True)
     validateloader = data.DataLoader(validate_dataset, batch_size=1, shuffle=False, drop_last=False)
     testloader = data.DataLoader(test_dataset, batch_size=1, shuffle=False, drop_last=False)
 
