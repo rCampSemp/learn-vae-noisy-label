@@ -16,6 +16,7 @@ from Utilis import segmentation_scores, CustomDataset_LIDC, calculate_cm
 from Utilis import evaluate
 from torch.nn import functional as F
 import matplotlib.pyplot as plt
+import pandas as pd
 
 # our proposed model:
 from Deterministic_LIDC_CM import UNet_DCM
@@ -29,7 +30,7 @@ if __name__ == '__main__':
 
     # hyper-parameters for model:
     input_dim = 1  # dimension of input
-    width = 1  # width of the network (only workswith width = 1 for now)
+    width = 1  # width of the network 
     depth = 3  # depth of the network, downsampling times is (depth-1)
     class_no = 2  # class number, 2 for binary
 
@@ -40,11 +41,15 @@ if __name__ == '__main__':
     ramp_up = 0.0 # This ramp up is necessary!!!
 
     # ======================================= #
-    # Prepare a few data examples from MNIST
+    # Prepare a few data examples from LIDC 
     # ======================================= #
 
     # Change path for your own datasets here:
     data_path = './LIDC_examples'
+
+    # get meta file as dataframe
+    meta_file = data_path + '/meta/metadata.csv'
+    meta_df = pd.read_csv(meta_file)
 
     # full path to train/validate/test:
     test_path = data_path + '/test'
@@ -111,12 +116,21 @@ if __name__ == '__main__':
         pass
 
     save_path_visual_result = saved_information_path + '/visual_results'
+    save_path_subtlety = save_path_visual_result + '/subtlety_'
     try:
         os.mkdir(save_path_visual_result)
     except OSError as exc:
         if exc.errno != errno.EEXIST:
             raise
         pass
+
+    for i in range(1, 6):
+        try:
+            os.mkdir(save_path_subtlety + str(i))
+        except OSError as exc:
+            if exc.errno != errno.EEXIST:
+                raise
+
 
     # tensorboardX file saved location:
     writer = SummaryWriter('./Results/Log_' + model_name)
@@ -215,10 +229,13 @@ if __name__ == '__main__':
 
         # v_outputs_logits_original = nn.Softmax(dim=1)(v_outputs_logits_original)
         _, v_outputs_logits = torch.max(v_outputs_logits_original, dim=1)
-
-        save_name = save_path_visual_result + '/test_' + str(i) + '_seg.png'
-        save_name_label = save_path_visual_result + '/test_' + str(i) + '_label.png'
-        save_name_slice = save_path_visual_result + '/test_' + str(i) + '_img.png'
+        
+        _, patient_id, _, nod_no, _, _ = imagename[0].split('_')
+        subtlety = meta_df.loc[(meta_df['patient_id'] == int(patient_id)) & (meta_df['nodule_no'] == int(nod_no))]['subtlety'].item()
+        
+        save_name = save_path_subtlety + str(subtlety) + '/test_' + str(i) + '_seg.png'
+        save_name_label = save_path_subtlety + str(subtlety) + '/test_' + str(i) + '_label.png'
+        save_name_slice = save_path_subtlety + str(subtlety) + '/test_' + str(i) + '_img.png'
 
         plt.imsave(save_name_slice, v_images.reshape(h, w).cpu().detach().numpy(), cmap='gray')
         plt.imsave(save_name, v_outputs_logits.reshape(h, w).cpu().detach().numpy(), cmap='gray')
@@ -237,12 +254,13 @@ if __name__ == '__main__':
         #     save_name = save_path_visual_result + '/test_' + str(i) + '_noisy_' + str(j) + '_seg.png'
         #     plt.imsave(save_name, v_noisy_output.reshape(h, w).cpu().detach().numpy(), cmap='gray')
 
-    test_data_index = 4
+    subtlety = 2
+    test_data_index = 0
 
-    seg = save_path_visual_result + '/test_' + str(test_data_index) + '_seg.png'
-    label = save_path_visual_result + '/test_' + str(test_data_index) + '_label.png'
-    img = save_path_visual_result + '/test_' + str(test_data_index) + '_img.png'
-
+    seg = save_path_subtlety + str(subtlety) + '/test_' + str(test_data_index) + '_seg.png'
+    label = save_path_subtlety + str(subtlety) + '/test_' + str(test_data_index) + '_label.png'
+    img = save_path_subtlety + str(subtlety) + '/test_' + str(test_data_index) + '_img.png'
+    
     # plot image, ground truth and final segmentation
     fig = plt.figure(figsize=(6.7, 13))
     columns = 3

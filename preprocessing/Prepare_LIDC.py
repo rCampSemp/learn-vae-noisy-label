@@ -1,4 +1,6 @@
+from configparser import InterpolationError
 from distutils.command.config import config
+from email.policy import default
 import os
 import errno
 from tabnanny import verbose
@@ -6,9 +8,11 @@ import pylidc as pl
 import numpy as np
 from pylidc.utils import consensus
 import glob
+from sklearn.metrics import average_precision_score
 from tifffile import imsave
 import random
-
+import pandas as pd
+from collections import defaultdict
 
 def prep_config(path_to_lidc):
     # path to root folder of LIDC dataset with subfolders in form LIDC-IDRI-dddd
@@ -53,15 +57,28 @@ def reshape(bbox, dim):
 
     return slice(bboxx1, bboxx2), slice(bboxy1, bboxy2), bbox[2]
 
+def getAverageParams(annots, *params):
+    averages = []
+    for param in params[0]:
+        tmp_score = 0
+        for annot in annots:
+            tmp_score += getattr(annot, param)
+    
+        averages.append(round(tmp_score/len(annots)))
+
+    return averages
+
 def save_ims(files, truepath, annotpath, scanpath):
-    mask_threshold = 20
+    global keylist, metadata
+    
+
+    mask_threshold = 30
     for pid in files:
         scan = pl.query(pl.Scan).filter(pl.Scan.patient_id == pid).first()
         vol = scan.to_volume() 
         nods = scan.cluster_annotations()
-        no_nods = len(nods)
         #
-        if no_nods > 0:
+        if len(nods) > 0:
 
             for nod_idx, nod in enumerate(nods):
                 # get consensus masks and bounding box 
@@ -93,7 +110,11 @@ def save_ims(files, truepath, annotpath, scanpath):
                 # pad masks into given dimensions
                 cmask = np.pad(cmask, pad_width=((0,0), (cbbox[0].start - cbbox2[0].start, cbbox2[0].stop - cbbox[0].stop), (cbbox[1].start - cbbox2[1].start, cbbox2[1].stop - cbbox[1].stop), (0,0)), mode='constant', constant_values=False)
                 masks = np.pad(masks, pad_width=((0,0), (cbbox[0].start - cbbox2[0].start, cbbox2[0].stop - cbbox[0].stop), (cbbox[1].start - cbbox2[1].start, cbbox2[1].stop - cbbox[1].stop), (0,0), (0,0)), mode='constant', constant_values=False)
-                # check for negative bbox
+                # save metadata to dict
+                averages = getAverageParams(nod, keylist[2:])
+                data = [pid[-4:], nod_idx] + averages
+                for i, key in enumerate(keylist):
+                    metadata[key].append(data[i])
                 #
                 for slice_idx in range(numslices):
                     if slice_idx > 40 or np.sum(cmask[:,:,:,slice_idx]) <= mask_threshold or cmask.shape[1] != 64 or cmask.shape[2] != 64:
@@ -104,9 +125,10 @@ def save_ims(files, truepath, annotpath, scanpath):
                     imsave(full_store_path_true, cmask[:,:,:,slice_idx])
                    
                     #save scan of lung
+                    std_scan_img = (scan_img[:,:,:,slice_idx] - scan_img[:,:,:,slice_idx].mean() ) / scan_img[:,:,:,slice_idx].std()
                     full_store_path_scan = os.path.join(scanpath, 'pid_' + pid[-4:] + '_nod_' + str(nod_idx) 
                                                             + '_slice_' + str(slice_idx) + '.tif')
-                    imsave(full_store_path_scan, scan_img[:,:,:,slice_idx])
+                    imsave(full_store_path_scan, std_scan_img)
 
                     # save masks per slice with multiple annots along 3rd dim h x w x annots
                     full_store_path_annot = os.path.join(annotpath, 'pid_' + pid[-4:] + '_nod_' + str(nod_idx) 
@@ -134,6 +156,8 @@ def prep_data(path_to_lidc, save_folder_mother):
     scan_val_path = save_folder_mother + '/validate/scans'
     scan_test_path = save_folder_mother + '/test/scans'
 
+    meta_path = save_folder_mother + '/meta'
+    
     try:
         os.makedirs(image_train)
         os.makedirs(truth_train)
@@ -144,6 +168,7 @@ def prep_data(path_to_lidc, save_folder_mother):
         os.makedirs(scan_train_path)
         os.makedirs(scan_val_path)
         os.makedirs(scan_test_path)
+        os.makedirs(meta_path)
     except OSError as exc:
         if exc.errno != errno.EEXIST:
             raise
@@ -153,13 +178,24 @@ def prep_data(path_to_lidc, save_folder_mother):
 
     train, val, test = train_test_val_split(patient_list)
 
+
     save_ims(train, truth_train, image_train, scan_train_path)
     save_ims(val, truth_val, image_val, scan_val_path)
     save_ims(test, truth_test, image_test, scan_test_path)
 
-
+    
 if __name__ == '__main__':
+    keylist = ['patient_id','nodule_no','subtlety', 'internalStructure', 'calcification', 'sphericity', 'margin', 'lobulation', 'spiculation', 'texture', 'malignancy']
+    metadata = defaultdict(list)
+
     path_lidc = '/home/rhys/Documents/datasets/LIDC-IDRI/'
     save_path = '../LIDC_examples'
     prep_config(path_lidc)
     prep_data(path_lidc, save_path)
+
+    meta_df = pd.DataFrame.from_dict(metadata)
+    meta_df.sort_values(by=['patient_id', 'nodule_no'], inplace=True)
+    df_filename = 'metadata.csv'
+    metadf_path = os.path.join('../LIDC_examples/meta', df_filename)
+    meta_df.to_csv(metadf_path, index=False)
+
