@@ -662,6 +662,41 @@ def evaluate(evaluatedata, model, device, class_no):
         #
         return test_iou / (j+1)
 
+def evaluate_LIDC(evaluatedata, model, device, class_no):
+    """
+
+    Args:
+        evaluatedata:
+        model:
+        device:
+        class_no:
+
+    Returns:
+
+    """
+    model.eval()
+    #
+    with torch.no_grad():
+        #
+        test_iou = 0
+        #
+        for j, (testimg, true_image, annots, imagename) in enumerate(evaluatedata):
+            #
+            testimg = testimg.to(device=device, dtype=torch.float32)
+            true_image = true_image.to(device=device, dtype=torch.float32)
+            #
+            testoutput, _ = model(testimg)
+            if class_no == 2:
+                testoutput = torch.sigmoid(testoutput)
+                testoutput = (testoutput > 0.5).float()
+            else:
+                _, testoutput = torch.max(testoutput, dim=1)
+            #
+            mean_iu_ = segmentation_scores(true_image.cpu().detach().numpy(), testoutput.cpu().detach().numpy(), class_no)
+            test_iou += mean_iu_
+        #
+        return test_iou / (j+1)
+
 
 def test(testdata,
          model,
@@ -1538,6 +1573,24 @@ def segmentation_scores(label_trues, label_preds, n_class):
     #
     return ((area_intersection + 1e-6) / (area_union + 1e-6)).mean()
 
+# optimize the dice score of each of the samples in the batch and not a "global" dice score: 
+# Suppose you have one "difficult" sample in an "easy" batch. 
+# The misclassified pixels of the "difficult" sample will be negligible w.r.t all other pixels. 
+# But if you look at the dice score of each sample separately then the dice score of the "difficult" sample will not be negligible.
+def seg_score(target, inputs):
+    num = target.shape[0]
+
+    inputs = np.asarray(inputs, dtype='uint8').copy()
+    target = np.asarray(target, dtype='uint8').copy()
+
+    inputs = inputs.reshape(num, -1)
+    target = target.reshape(num, -1)
+
+    intersection = (inputs * target).sum(1)
+    union = inputs.sum(1) + target.sum(1)
+    dice = (2. * intersection) / (union + 1e-8)
+    dice = dice.sum()/num
+    return dice
 
 def generalized_energy_distance(all_gts, all_segs, class_no):
     '''
@@ -1701,7 +1754,7 @@ def evaluate_noisy_label_5(data, model1, class_no):
             _, v_noisy_output = torch.max(v_noisy_output, dim=1)
             v_outputs_noisy.append(v_noisy_output.cpu().detach().numpy())
         #
-        v_dice_ = segmentation_scores(v_labels_true, v_output.cpu().detach().numpy(), class_no)
+        v_dice_ = seg_score(v_labels_true, v_output.cpu().detach().numpy())
         #
         epoch_noisy_labels = [v_labels_over.cpu().detach().numpy(), v_labels_under.cpu().detach().numpy(), v_labels_wrong.cpu().detach().numpy(), v_labels_true.cpu().detach().numpy(), v_labels_good.cpu().detach().numpy()]
         v_ged = generalized_energy_distance(epoch_noisy_labels, v_outputs_noisy, class_no)
@@ -1785,3 +1838,44 @@ def evaluate_noisy_label_6(data, model1, class_no):
     # print(test_dice / (i + 1))
     #
     return test_dice / (i + 1), v_ged
+
+def validate_LIDC(data_loader, model1, device):
+    """
+
+    Args:
+        data:
+        model1:
+        class_no:
+
+    Returns:
+
+    """
+    model1.eval()
+    # model2.eval()
+    #
+    test_dice = 0
+    test_dice_all = []
+    num_batches = len(data_loader)
+    #
+    for i, (v_images, v_true_image, v_annots, v_imagename) in enumerate(data_loader):
+        #
+        v_images = v_images.to(device=device, dtype=torch.float32)
+        v_outputs_logits, cms = model1(v_images)
+        b, c, h, w = v_outputs_logits.size()
+        v_outputs_logits = nn.Softmax(dim=1)(v_outputs_logits)
+        # cms = model2(v_images)
+        #
+        _, v_output = torch.max(v_outputs_logits, dim=1)
+        #
+        v_dice_ = seg_score(v_true_image, v_output.cpu().detach().numpy())
+        #
+        # epoch_noisy_labels = [v_true_image.cpu().detach().numpy(), v_labels_under.cpu().detach().numpy(), v_labels_wrong.cpu().detach().numpy(), v_labels_true.cpu().detach().numpy(), v_labels_good.cpu().detach().numpy()]
+        # v_ged = generalized_energy_distance(epoch_noisy_labels, v_outputs_noisy, class_no)
+        test_dice += v_dice_
+        test_dice_all.append(test_dice)
+        #
+    # print(i)
+    # print(test_dice)
+    # print(test_dice / (i + 1))
+    #
+    return test_dice / num_batches

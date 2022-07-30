@@ -3,8 +3,9 @@ import torch
 # sys.path.append("..")
 # from Train_unet import trainUnet
 # from Train_ours import trainModels
-from Train_GCM import trainGCMModels
+# from Train_GCM import trainGCMModels
 # from Train_punet import train_punet
+from Train_LIDC import trainModels
 # torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
@@ -30,42 +31,38 @@ if __name__ == '__main__':
     # ==========================================
     # for training with our model
     # ==========================================
-    # trainModels(input_dim=4,
-    #             class_no=4,
-    #             repeat=1,
-    #             train_batchsize=2,
-    #             validate_batchsize=1,
-    #             num_epochs=20,
-    #             learning_rate=1e-2,
-    #             alpha=0.4,
-    #             width=32,
-    #             depth=4,
-    #             data_path='/home/moucheng/Desktop/All_L0_H10',
-    #             dataset_tag='brats',
-    #             label_mode='multi',
-    #             save_probability_map=True,
-    #             low_rank_mode=True)
+    trainModels(input_dim=1,
+                class_no=2,
+                repeat=1,
+                train_batchsize=5,
+                validate_batchsize=1,
+                num_epochs=50,
+                learning_rate=1e-4,
+                width=12,
+                depth=3,
+                data_path='./LIDC_examples',
+                save_probability_map=True)
     #
     # ============================================
     # for baseline with global confusion  matrices
     # ============================================
-    trainGCMModels(input_dim=4,
-                   class_no=4,
-                   repeat=1,
-                   train_batchsize=2,
-                   validate_batchsize=1,
-                   num_epochs=2,
-                   learning_rate=1e-2,
-                   input_height=192,
-                   input_width=192,
-                   alpha=0.4,
-                   width=32,
-                   depth=3,
-                   data_path='/home/moucheng/Desktop/All_L10_H10',
-                   dataset_tag='brats',
-                   label_mode='multi',
-                   loss_f='noisy_label',
-                   save_probability_map=False)
+    # trainGCMModels(input_dim=4,
+    #                class_no=4,
+    #                repeat=1,
+    #                train_batchsize=2,
+    #                validate_batchsize=1,
+    #                num_epochs=2,
+    #                learning_rate=1e-2,
+    #                input_height=192,
+    #                input_width=192,
+    #                alpha=0.4,
+    #                width=32,
+    #                depth=3,
+    #                data_path='/home/moucheng/Desktop/All_L10_H10',
+    #                dataset_tag='brats',
+    #                label_mode='multi',
+    #                loss_f='noisy_label',
+    #                save_probability_map=False)
     # ============================================
     # for baseline without label merging:
     # ============================================
