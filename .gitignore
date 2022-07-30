@@ -1,8 +1,6 @@
 # Ignore all wandb file:
 wandb/
 
-Results/
-
 *.pyc
 *.pyo
 
@@ -59,4 +57,9 @@ coverage.xml
 # Sphinx documentation
 docs/_build/
 
-LIDC_examples/
+# mlflow logs
+mlruns/
+
+# data folders
+Results/
+LIDC_data/
