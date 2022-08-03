@@ -7,13 +7,16 @@ torch.backends.cudnn.deterministic = True
 # =======================================
 
 
-def stochastic_noisy_label_loss(pred, cm, mu, logvar, label, epoch, total_epoch, ramp_up=0.5, alpha=1.0):
+def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch, data, ramp_up=0.5, alpha=1.0):
     """
     Under construction
     """
     # regularisation = 0.0
     b, c, h, w = pred.size()
-
+    if data == 'mnist':
+        label = random.choice(labels)
+    elif data == 'lidc':
+        label = labels[:,:,:,:,np.random.choice(labels.shape[4])]
     # # self attention on pred norm:
     # pred_theta = pred.view(b, c, h * w)
     # pred_phi = pred.view(b, c, h * w).permute(0, 2, 1).contiguous()
