@@ -1,3 +1,4 @@
+from hashlib import new
 import os
 import pylidc as pl
 import numpy as np
@@ -7,10 +8,11 @@ from tifffile import imsave
 import random
 import pandas as pd
 from collections import defaultdict
-
+import cv2 as cv
+from torch import equal
 
 class PrepareLIDC:
-    def __init__(self, LIDC_path, save_path, clevel, mask_threshold, resolution, meta_keys) -> None:
+    def __init__(self, LIDC_path, save_path, clevel, mask_threshold, resolution, meta_keys, hist=None, cliplimit=0.2) -> None:
         self.LIDC_path = LIDC_path
         self.save_path = save_path
 
@@ -22,6 +24,9 @@ class PrepareLIDC:
         self.res = resolution
         self.mask_threshold = mask_threshold
         self.clevel = clevel
+
+        self.hist = hist
+        self.cliplimit = cliplimit
 
     def config(self):
         """Function to write LIDC data location to config file for pylidc.
@@ -68,8 +73,8 @@ class PrepareLIDC:
         Returns:
             lists of ndarrays: lists of sub-arrays representing train/test/validation split of input file paths
         """
-        testsplit = 0.15
-        valsplit = 0.15
+        testsplit = 0.1
+        valsplit = 0.1
 
         train_Files, val_Files, test_Files = np.split(np.array(self.patient_ids),
                                                         [int(len(self.patient_ids) * (1 - (valsplit + testsplit))),
@@ -125,9 +130,24 @@ class PrepareLIDC:
 
         return averages
 
-    def _standardize(self, img, slice_idx):
-        std_img = (img[:,:,:,slice_idx] - img[:,:,:,slice_idx].mean() ) / img[:,:,:,slice_idx].std()
+    def _standardize(self, img):
+        std_img = ( img - img.mean() ) / img.std()
         return std_img
+
+    def zeroto255(self, img):
+        new_img = ( ( img - img.min() ) * ( 1/(img.max() - img.min() ) * 255) ).astype(np.uint8)
+        return new_img
+
+    def clahe_fn(self, img):
+        new_img = ( ( img - img.min() ) * ( 1/(img.max() - img.min() ) * 255) ).astype(np.uint8)
+        clahe = cv.createCLAHE(clipLimit=self.cliplimit, tileGridSize=(8,8))
+        new_img = clahe.apply(new_img)
+        return new_img
+
+    def equal_hist(self, img):
+        new_img = ( ( img - img.min() ) * ( 1/(img.max() - img.min() ) * 255) ).astype(np.uint8)
+        eq_img = cv.equalizeHist(new_img)
+        return eq_img
 
     def save_ims(self, data, path_to_split):
         """_summary_
@@ -151,7 +171,7 @@ class PrepareLIDC:
 
                 for nod_idx, nod in enumerate(nods):
                     # get consensus masks and bounding box 
-                    cmask,cbbox,masks = consensus(nod, clevel=self.clevel, pad=None, ret_masks=True, verbose=False)
+                    cmask,cbbox,masks = consensus(nod, clevel=self.clevel)
                     #
                     # ignore nodules too large
                     if cmask.shape[0] > self.res or cmask.shape[1] > self.res:
@@ -167,7 +187,7 @@ class PrepareLIDC:
                         continue
                     #
                     # add channel dim to data  
-                    scan_img = np.expand_dims(scan_img, axis=0)
+                    # scan_img = np.expand_dims(scan_img, axis=0)
                     cmask = np.expand_dims(cmask, axis=0)
                     for annot in masks:
                         annot.resize(1, cmask.shape[1], cmask.shape[2], numslices, refcheck=False) #refcheck false to allow resizing referenced array
@@ -185,32 +205,47 @@ class PrepareLIDC:
                     data = [pid[-4:], nod_idx] + averages
                     for i, key in enumerate(self.keylist):
                         self.metadata[key].append(data[i])
-                    #
+                    nod_size_list = []
+                    #   
                     for slice_idx in range(numslices):
-                        if np.sum(cmask[:,:,:,slice_idx]) <= self.mask_threshold or cmask.shape[1] != self.res or cmask.shape[2] != self.res:
+                        nod_size = np.sum(cmask[:,:,:,slice_idx])
+
+                        if nod_size <= self.mask_threshold or cmask.shape[1] != self.res or cmask.shape[2] != self.res or scan_img.shape[0] != self.res or scan_img.shape[1] != self.res:
                             continue
+                        nod_size_list.append(nod_size)
+
                         # save ground truth masks
                         full_store_path_true = os.path.join(truepath, 'pid_' + pid[-4:] + '_nod_' + str(nod_idx) 
                                                                 + '_slice_' + str(slice_idx) + '.tif')
                         imsave(full_store_path_true, cmask[:,:,:,slice_idx])
                     
                         #save scan of lung
-                        std_scan_img = self._standardize(scan_img, slice_idx)
+                        if self.hist is None:
+                            new_scan_img = self.zeroto255(scan_img[:,:,slice_idx])
+                        elif self.hist == 'clahe':
+                            new_scan_img = self.clahe_fn(scan_img[:,:,slice_idx])
+                        elif self.hist == 'equal':                            
+                            new_scan_img = self.equal_hist(scan_img[:,:,slice_idx])
+
+                        new_scan_img = np.expand_dims(new_scan_img, axis=0)
                         full_store_path_scan = os.path.join(scanpath, 'pid_' + pid[-4:] + '_nod_' + str(nod_idx) 
                                                                 + '_slice_' + str(slice_idx) + '.tif')
-                        imsave(full_store_path_scan, std_scan_img)
+                        imsave(full_store_path_scan, new_scan_img)
 
                         # save masks per slice with multiple annots along 3rd dim h x w x annots
                         full_store_path_annot = os.path.join(annotpath, 'pid_' + pid[-4:] + '_nod_' + str(nod_idx) 
                                                                 + '_slice_' + str(slice_idx) + '.tif')
                         imsave(full_store_path_annot, masks[:,:,:,:,slice_idx])
+
+                    self.metadata['nod_sz_per_slice'].append(nod_size_list)
     
     def save_meta_csv(self):
         meta_df = pd.DataFrame.from_dict(self.metadata)
         meta_df.sort_values(by=['patient_id', 'nodule_no'], inplace=True)
         df_filename = 'metadata.csv'
-        metadf_path = os.path.join('../LIDC_examples/meta', df_filename)
+        metadf_path = os.path.join(self.save_path + '/meta', df_filename)
         meta_df.to_csv(metadf_path, index=False)
+        print('metadata saved')
 
     def prepare_data(self):
         self.config()
@@ -228,8 +263,11 @@ class PrepareLIDC:
 if __name__ == '__main__':
     keylist = ['patient_id','nodule_no','subtlety', 'internalStructure', 'calcification', 'sphericity', 'margin', 'lobulation', 'spiculation', 'texture', 'malignancy']
 
-    path_lidc = '/home/rhys/Documents/datasets/LIDC-IDRI/'
-    save_path = '../LIDC_examples'
+    path_lidc = '/home/rhys/Documents/datasets/full_LIDC/LIDC-IDRI/'
+    save_path = '../LIDC_data'
 
-    lidc_process = PrepareLIDC(path_lidc, save_path, clevel=0.5, mask_threshold=30, resolution=64, meta_keys=keylist)
+    lidc_process = PrepareLIDC(path_lidc, save_path, clevel=0.5, mask_threshold=0, resolution=64, meta_keys=keylist, hist=None)
     lidc_process.prepare_data()
+
+    print('End')
+
