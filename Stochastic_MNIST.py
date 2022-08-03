@@ -13,7 +13,7 @@ from torch.utils import data
 import matplotlib.pyplot as plt
 from tensorboardX import SummaryWriter
 from Stochastic_Loss import stochastic_noisy_label_loss
-from Utilis import segmentation_scores, CustomDataset_punet, calculate_cm
+from Utilis import seg_score, CustomDataset_punet, calculate_cm
 from Utilis import evaluate
 from torch.nn import functional as F
 
@@ -36,10 +36,10 @@ if __name__ == '__main__':
     # hyper-parameters for training:
     train_batchsize = 5  # batch size
     alpha = 1.0  # weight of the kl loss
-    num_epochs = 40  # total epochs
-    latent = 32
+    num_epochs = 100  # total epochs
+    latent = 512
     learning_rate = 1e-3  # learning rate DO NOT USE 1E-2!!
-    ramp_up = 0.2 # This ramp up is necessary!!!
+    ramp_up = 0.3 # This ramp up is necessary!!!
 
     # image resolution:
     mnist_resolution = 28
@@ -79,8 +79,6 @@ if __name__ == '__main__':
                      width=width,
                      depth=depth,
                      latent=latent,
-                     batch_size=train_batchsize,
-                     input_dim=input_dim,
                      class_no=class_no,
                      norm='in')
 
@@ -172,29 +170,30 @@ if __name__ == '__main__':
             # model has two outputs:
             # first one is the probability map for true ground truth
             # second one is a list collection of probability maps for different noisy ground truths
-            outputs_logits, sampled_outputs_logits, stochastic_cm, mean, logvar = model(images, label)
+            outputs_logits, sampled_cm, mean, logvar = model(images)
             # outputs = 0.9*outputs + 0.1*outputs_logits
-
+            
             # calculate loss:
-            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits, sampled_outputs_logits, stochastic_cm, mean, logvar, label, epoch, num_epochs, ramp_up, alpha)
+            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits, sampled_cm, mean, logvar, label, epoch, num_epochs, ramp_up, alpha)
             # print(images.size())
             loss = seg_loss + kldloss
             # calculate the gradients:
+            # loss = lossss(model, sampled_outputs_logits, stochastic_cm, mean, logvar, label, epoch, num_epochs, ramp_up, alpha)
             loss.backward()
             # update weights in model:
             optimizer.step()
 
             # Now outputs_logits is the noisy seg:
-            b_, c_, h_, w_ = sampled_outputs_logits.size()
+            b_, c_, h_, w_ = outputs_logits.size()
             # pred_norm_prob_noisy = nn.Softmax(dim=1)(outputs_logits)
-            pred_noisy = sampled_outputs_logits.view(b_, c_, h_ * w_).permute(0, 2, 1).contiguous().view(b_ * h_ * w_, c_, 1)
-            anti_corrpution_cm = stochastic_cm.view(b_, c_ ** 2, h_ * w_).permute(0, 2, 1).contiguous().view(b_ * h_ * w_, c_ * c_).view(b_ * h_ * w_, c_, c_)
+            pred_noisy = outputs_logits.view(b_, c_, h_ * w_).permute(0, 2, 1).contiguous().view(b_ * h_ * w_, c_, 1)
+            anti_corrpution_cm = sampled_cm.view(b_, c_ ** 2, h_ * w_).permute(0, 2, 1).contiguous().view(b_ * h_ * w_, c_ * c_).view(b_ * h_ * w_, c_, c_)
             anti_corrpution_cm = torch.softmax(anti_corrpution_cm, dim=1)
             outputs_clean = torch.bmm(anti_corrpution_cm, pred_noisy).view(b_ * h_ * w_, c_)
             outputs_clean = outputs_clean.view(b_, h_ * w_, c_).permute(0, 2, 1).contiguous().view(b_, c_, h_, w_)
 
             _, train_output = torch.max(outputs_clean, dim=1)
-            train_iou = segmentation_scores(labels_good.cpu().detach().numpy(), train_output.cpu().detach().numpy(), class_no)
+            train_iou = seg_score(labels_good.cpu().detach().numpy(), train_output.cpu().detach().numpy())
             running_loss += seg_loss
             running_kld_loss += kldloss
             running_iou += train_iou
@@ -227,32 +226,39 @@ if __name__ == '__main__':
     model.eval()
     for i, (v_images, labels_over, labels_under, labels_wrong, labels_good, imagename) in enumerate(testloader):
         v_images = v_images.to(device=device, dtype=torch.float32)
-        _, v_outputs_logits_original, v_stochastic_cm, _, __ = model(v_images, _)
+        v_outputs_logits_original, sampled_cm, _, __ = model(v_images)
         b, c, h, w = v_outputs_logits_original.size()
+        
         # plot the final segmentation map
-
+        samples = model.cm_network.sample(5)
+        
         # print(v_stochastic_cm.size())
         # pred_norm_prob_noisy = nn.Softmax(dim=1)(v_outputs_logits_original)
         pred_noisy = v_outputs_logits_original.view(b, c, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c, 1)
-        anti_corrpution_cm = v_stochastic_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
-        # anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
-        anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
+        for k, sample in enumerate(samples):
+            sample_cm = torch.unsqueeze(sample, dim=0)
 
-        # pred_norm_prob_noisy = pred_norm_prob_noisy.view(b, c, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c, 1)
-        outputs_clean = torch.bmm(anti_corrpution_cm, pred_noisy).view(b * h * w, c)
-        v_outputs_logits_original = outputs_clean.view(b, h * w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
+            anti_corrpution_cm = sample_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
+            # anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
+            anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
 
-        # v_outputs_logits_original = nn.Softmax(dim=1)(v_outputs_logits_original)
-        _, v_outputs_logits = torch.max(v_outputs_logits_original, dim=1)
+            # pred_norm_prob_noisy = pred_norm_prob_noisy.view(b, c, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c, 1)
+            outputs_clean = torch.bmm(anti_corrpution_cm, pred_noisy).view(b * h * w, c)
+            v_outputs_logits_original = outputs_clean.view(b, h * w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
 
-        save_name = save_path_visual_result + '/test_' + str(i) + '_seg.png'
-        save_name_label = save_path_visual_result + '/test_' + str(i) + '_label.png'
+            # v_outputs_logits_original = nn.Softmax(dim=1)(v_outputs_logits_original)
+            _, v_outputs_logits = torch.max(v_outputs_logits_original, dim=1)
+
+            save_name = save_path_visual_result + '/test_' + str(i) + '_seg_' + str(k) + '.png'
+            
+            plt.imsave(save_name, v_outputs_logits.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+            
+        
         save_name_slice = save_path_visual_result + '/test_' + str(i) + '_img.png'
-
         plt.imsave(save_name_slice, v_images[:, 1, :, :].reshape(h, w).cpu().detach().numpy(), cmap='gray')
-        plt.imsave(save_name, v_outputs_logits.reshape(h, w).cpu().detach().numpy(), cmap='gray')
-        plt.imsave(save_name_label, labels_good.reshape(h, w).cpu().detach().numpy(), cmap='gray')
 
+        save_name_label = save_path_visual_result + '/test_' + str(i) + '_label.png'
+        plt.imsave(save_name_label, labels_good.reshape(h, w).cpu().detach().numpy(), cmap='gray')
         # # plot the noisy segmentation maps:
         # v_outputs_logits_original = v_outputs_logits_original.reshape(b, c, h * w)
         # v_outputs_logits_original = v_outputs_logits_original.permute(0, 2, 1).contiguous()
@@ -266,39 +272,43 @@ if __name__ == '__main__':
         #     save_name = save_path_visual_result + '/test_' + str(i) + '_noisy_' + str(j) + '_seg.png'
         #     plt.imsave(save_name, v_noisy_output.reshape(h, w).cpu().detach().numpy(), cmap='gray')
 
-    test_data_index = 15
+    # test_data_index = 15
 
     # over_seg = save_path_visual_result + '/test_' + str(test_data_index) + '_noisy_' + str(0) + '_seg.png'
     # under_seg = save_path_visual_result + '/test_' + str(test_data_index) + '_noisy_' + str(1) + '_seg.png'
     # wrong_seg = save_path_visual_result + '/test_' + str(test_data_index) + '_noisy_' + str(2) + '_seg.png'
     # good_seg = save_path_visual_result + '/test_' + str(test_data_index) + '_noisy_' + str(3) + '_seg.png'
 
-    seg = save_path_visual_result + '/test_' + str(test_data_index) + '_seg.png'
-    label = save_path_visual_result + '/test_' + str(test_data_index) + '_label.png'
-    img = save_path_visual_result + '/test_' + str(test_data_index) + '_img.png'
+    # seg = save_path_visual_result + '/test_' + str(test_data_index) + '_seg.png'
+    # label = save_path_visual_result + '/test_' + str(test_data_index) + '_label.png'
+    # img = save_path_visual_result + '/test_' + str(test_data_index) + '_img.png'
 
     # plot image, ground truth and final segmentation
-    fig = plt.figure(figsize=(6.7, 13))
-    columns = 3
-    rows = 1
+    # fig = plt.figure(figsize=(6.7, 13))
+    # columns = 3
+    # rows = 1
 
-    ax = []
-    imgs = []
-    imgs_names = []
+    # ax = []
+    # imgs = []
+    # imgs_names = []
 
-    imgs.append(img)
-    imgs.append(label)
-    imgs.append(seg)
+    # imgs.append(img)
+    # imgs.append(label)
+    # imgs.append(seg)
 
-    imgs_names.append('Test img')
-    imgs_names.append('GroundTruth')
-    imgs_names.append('Pred of true seg')
+    # imgs_names.append('Test img')
+    # imgs_names.append('GroundTruth')
+    # imgs_names.append('Pred of true seg')
 
-    for i in range(columns * rows):
-        img_ = imgs[i]
-        ax.append(fig.add_subplot(rows, columns, i + 1))
-        ax[-1].set_title(imgs_names[i])
-        img_ = Image.open(img_)
-        img_ = np.array(img_, dtype='uint8')
-        plt.imshow(img_, cmap='gray')
-    plt.show()
+    # for i in range(columns * rows):
+    #     img_ = imgs[i]
+    #     ax.append(fig.add_subplot(rows, columns, i + 1))
+    #     ax[-1].set_title(imgs_names[i])
+    #     img_ = Image.open(img_)
+    #     img_ = np.array(img_, dtype='uint8')
+    #     plt.imshow(img_, cmap='gray')
+    # plt.show()
+
+    def showsample(num_samples):
+        pass
+
