@@ -11,7 +11,7 @@ import torch.optim as optim
 from torch.utils import data
 import matplotlib.pyplot as plt
 from tensorboardX import SummaryWriter
-from Deterministic_LIDC_Loss import deterministic_noisy_label_loss
+from Deterministic_Loss import deterministic_noisy_label_loss
 from Utilis import segmentation_scores, CustomDataset_LIDC, calculate_cm
 from Utilis import LIDC_collate
 from torch.nn import functional as F
@@ -19,9 +19,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 # our proposed model:
-from Deterministic_LIDC_CM import UNet_DCM
+from Deterministic_CM import UNet_DCM
 from PIL import Image
-
 
 if __name__ == '__main__':
     # ========================= #
@@ -30,7 +29,7 @@ if __name__ == '__main__':
 
     # hyper-parameters for model:
     input_dim = 1  # dimension of input
-    width = 1  # width of the network 
+    width = 8  # width of the network 
     depth = 3  # depth of the network, downsampling times is (depth-1)
     class_no = 2  # class number, 2 for binary
 
@@ -38,7 +37,7 @@ if __name__ == '__main__':
     train_batchsize = 5  # batch size 
     num_epochs = 15  # total epochs
     learning_rate = 1e-3  # learning rate DO NOT USE 1E-2!!
-    ramp_up = 0.0 # This ramp up is necessary!!!
+    ramp_up = 0.2 # This ramp up is necessary!!!
 
     # ======================================= #
     # Prepare a few data examples from LIDC 
@@ -168,7 +167,7 @@ if __name__ == '__main__':
             # outputs = 0.9*outputs + 0.1*outputs_logits
 
             # calculate loss:
-            loss = deterministic_noisy_label_loss(outputs_logits, stochastic_cm, annots, epoch, num_epochs, ramp_up)
+            loss = deterministic_noisy_label_loss(outputs_logits, stochastic_cm, annots, epoch, num_epochs, data='lidc', ramp_up=ramp_up)
             # calculate the gradients:
             loss.backward()
             # update weights in model:

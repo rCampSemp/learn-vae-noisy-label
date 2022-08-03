@@ -7,7 +7,7 @@ torch.backends.cudnn.deterministic = True
 # =======================================
 
 
-def deterministic_noisy_label_loss(pred, cm, labels, epoch, total_epoch, ramp_up=0.5):
+def deterministic_noisy_label_loss(pred, cm, labels, epoch, total_epoch, data='lidc', ramp_up=0.5):
     """
     Under construction
     """
@@ -28,7 +28,10 @@ def deterministic_noisy_label_loss(pred, cm, labels, epoch, total_epoch, ramp_up
     #         label += each_label*weights[0][i]
     # label = (label > 0.5).float()
     # random choice:
-    label = random.choice(labels)
+    if data == 'lidc':
+        label = labels[:,:,:,:,np.random.choice(labels.shape[4])]
+    elif data == 'mnist':
+        label = random.choice(labels)
 
     # loss = 0
     # kld_loss = 0

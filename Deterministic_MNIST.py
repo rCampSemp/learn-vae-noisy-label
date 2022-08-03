@@ -33,9 +33,9 @@ if __name__ == '__main__':
 
     # hyper-parameters for training:
     train_batchsize = 5  # batch size
-    num_epochs = 40  # total epochs
+    num_epochs = 50  # total epochs
     learning_rate = 1e-3  # learning rate DO NOT USE 1E-2!!
-    ramp_up = 0.0 # This ramp up is necessary!!!
+    ramp_up = 0.4 # This ramp up is necessary!!!
 
     # image resolution:
     mnist_resolution = 28
@@ -134,7 +134,7 @@ if __name__ == '__main__':
     # =================================================== #
 
     # We use adamW optimiser for more accurate L2 regularisation
-    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, betas=(0.9, 0.999), eps=1e-8, weight_decay=1e-3)
+    optimizer = AdamW(model.parameters(), lr=learning_rate, betas=(0.9, 0.999), eps=1e-8, weight_decay=1e-3)
 
     for epoch in range(num_epochs):
         model.train()
