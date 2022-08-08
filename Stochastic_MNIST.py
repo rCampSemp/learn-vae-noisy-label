@@ -83,7 +83,7 @@ if __name__ == '__main__':
                      norm='in')
 
     # model name for saving:
-    model_name = 'UNet_Conditional_Stochastic_Confusion_Matrices_' + '_width' + str(width) + \
+    model_name = 'UNet_TEST_Conditional_Stochastic_Confusion_Matrices_' + '_width' + str(width) + \
                  '_depth' + str(depth) + '_train_batch_' + str(train_batchsize) + \
                  '_alpha_' + str(alpha) + '_e' + str(num_epochs) + \
                  '_lr' + str(learning_rate)
@@ -97,7 +97,7 @@ if __name__ == '__main__':
     # =================================================== #
 
     # save location:
-    saved_information_path = './Results'
+    saved_information_path = './Results/MNIST'
     try:
         os.mkdir(saved_information_path)
     except OSError as exc:
@@ -130,7 +130,7 @@ if __name__ == '__main__':
         pass
 
     # tensorboardX file saved location:
-    writer = SummaryWriter('./Results/Log_' + model_name)
+    writer = SummaryWriter('./Results/MNIST/Log_' + model_name)
 
     # =================================================== #
     # Training
@@ -192,6 +192,7 @@ if __name__ == '__main__':
             outputs_clean = outputs_clean.view(b_, h_ * w_, c_).permute(0, 2, 1).contiguous().view(b_, c_, h_, w_)
 
             _, train_output = torch.max(outputs_clean, dim=1)
+
             train_iou = seg_score(labels_good.cpu().detach().numpy(), train_output.cpu().detach().numpy())
             running_loss += seg_loss
             running_kld_loss += kldloss
@@ -227,13 +228,15 @@ if __name__ == '__main__':
         v_images = v_images.to(device=device, dtype=torch.float32)
         v_outputs_logits_original, sampled_cm, _, __ = model(v_images)
         b, c, h, w = v_outputs_logits_original.size()
-        
+        print(sampled_cm.shape)
         # plot the final segmentation map
         samples = model.cm_network.sample(5)
         
         # print(v_stochastic_cm.size())
         # pred_norm_prob_noisy = nn.Softmax(dim=1)(v_outputs_logits_original)
         pred_noisy = v_outputs_logits_original.view(b, c, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c, 1)
+        
+        sample_list = []
         for k, sample in enumerate(samples):
             sample_cm = torch.unsqueeze(sample, dim=0)
 
@@ -248,11 +251,13 @@ if __name__ == '__main__':
             # v_outputs_logits_original = nn.Softmax(dim=1)(v_outputs_logits_original)
             _, v_outputs_logits = torch.max(v_outputs_logits_original, dim=1)
 
-            save_name = save_path_visual_result + '/test_' + str(i) + '_seg_' + str(k) + '.png'
+            # save_name = save_path_visual_result + '/test_' + str(i) + '_seg_' + str(k) + '.png'
+            sample_list.append(v_outputs_logits.reshape(h, w).cpu().detach().numpy())
+            # plt.imsave(save_name, v_outputs_logits.reshape(h, w).cpu().detach().numpy(), cmap='gray')
             
-            plt.imsave(save_name, v_outputs_logits.reshape(h, w).cpu().detach().numpy(), cmap='gray')
-            
-        
+        save_name_samples = save_path_visual_result + '/test_' + str(i) + '_seg_samples'  + '.png'
+        plt.imsave(save_name_samples, np.hstack(sample_list), cmap='gray')
+
         save_name_slice = save_path_visual_result + '/test_' + str(i) + '_img.png'
         plt.imsave(save_name_slice, v_images[:, 1, :, :].reshape(h, w).cpu().detach().numpy(), cmap='gray')
 
