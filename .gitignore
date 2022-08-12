@@ -63,3 +63,6 @@ mlruns/
 # data folders
 Results/
 LIDC_data/
+
+# jupyter notebook
+.ipynb_checkpoints
