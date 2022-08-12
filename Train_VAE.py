@@ -69,7 +69,7 @@ def trainStoch(input_dim,
                             class_no=class_no,
                             norm='in')
 
-        Exp_name = 'Seg_UNet_DCMs_Direct_' + '_width' + str(width) + \
+        Exp_name = '1211_UNet_DCMs_Direct_' + '_width' + str(width) + \
                    '_depth' + str(depth) + '_train_batch_' + str(train_batchsize) + \
                    '_repeat' + str(j) + '_e' + str(num_epochs) + \
                    '_lr' + str(learning_rate) + '_save_probability_' + str(save_probability_map) 
@@ -177,7 +177,7 @@ def trainMNIST(model,
 
     for epoch in range(num_epochs):
         av_loss, av_kld, av_dice = train(model, device, trainloader, optimizer, epoch, num_epochs, ramp_up, alpha)
-        v_dice, v_kld, v_loss = validate_stochastic(validateloader, model, device, epoch, num_epochs, ramp_up, alpha)
+        v_dice, v_kld, v_loss, v_ged = validate_stochastic(validateloader, model, device, epoch, num_epochs, ramp_up, alpha)
         
         print(
             'Step [{}/{}], '
@@ -186,20 +186,23 @@ def trainMNIST(model,
             'Train dice: {:.4f},'
             '\nValidate loss: {:.4f},'
             'Validate kld: {:.4f}, '
-            'Validate dice: {:.4f}, '.format(epoch + 1, num_epochs,
+            'Validate dice: {:.4f}, '
+            'Validate ged: {:.4f}, '.format(epoch + 1, num_epochs,
                                                         av_loss,
                                                         av_kld,
                                                         av_dice,
-                                                        v_loss,
-                                                        v_kld,
-                                                        v_dice))
+                                                        v_loss[0],
+                                                        v_kld[0],
+                                                        v_dice[0],
+                                                        v_ged[0]))
         #
         writer.add_scalars('scalars', {'train loss': av_loss,
                                         'train kld': av_kld,
                                         'train dice': av_dice,
-                                        'val loss': v_loss,
-                                        'val kld': v_kld,
-                                        'val dice': v_dice}, epoch + 1)
+                                        'val loss': v_loss[0],
+                                        'val kld': v_kld[0],
+                                        'val dice': v_dice[0],
+                                        'val ged': v_ged[0]}, epoch + 1)
             #
             # # # ================================================================== #
             # # #                        TensorboardX Logging                        #
@@ -228,57 +231,29 @@ def trainMNIST(model,
         #
         v_outputs_logits_original, v_outputs_logits_noisy, _, _ = model(v_images)
         #
-        b, c, h, w = v_outputs_logits_original.size()
+        seg_shape = v_outputs_logits_original.size()
+        b, c, h, w = seg_shape
         #
         # v_outputs_logits_original = nn.Softmax(dim=1)(v_outputs_logits_original)
         #
         _, v_outputs_logits = torch.max(v_outputs_logits_original, dim=1)
         #
-        nnn = 1
-        #
         v_outputs_logits_original = v_outputs_logits_original.reshape(b, c, h*w)
         v_outputs_logits_original = v_outputs_logits_original.permute(0, 2, 1).contiguous()
         v_outputs_logits_original = v_outputs_logits_original.view(b * h * w, c).view(b*h*w, c, 1)
         #
-        samples = model.cm_network.sample(5)
+        sample_list = getSamples(v_outputs_logits_original, model, seg_shape, sample_no=10)
         #
-        sample_list = []
-        for j, sample in enumerate(samples):
-            sample_cm = torch.unsqueeze(sample, dim=0)
-
-            anti_corrpution_cm = sample_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
-            # anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
-            anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
-
-            # pred_norm_prob_noisy = pred_norm_prob_noisy.view(b, c, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c, 1)
-            outputs_clean = torch.bmm(anti_corrpution_cm, v_outputs_logits_original).view(b * h * w, c)
-            v_outputs_logits_o = outputs_clean.view(b, h * w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
-
-            # v_outputs_logits_original = nn.Softmax(dim=1)(v_outputs_logits_original)
-            _, v_outputs_logits = torch.max(v_outputs_logits_o, dim=1)
-
-            # save_name = save_path_visual_result + '/test_' + str(i) + '_seg_' + str(k) + '.png'
-            sample_list.append(v_outputs_logits.reshape(h, w).cpu().detach().numpy())
-            # plt.imsave(save_name, v_outputs_logits.reshape(h, w).cpu().detach().numpy(), cmap='gray')
-
-        save_name = save_path_visual_result + '/test_' + str(i) + '_seg_samples.png'
-        save_name_label = save_path_visual_result + '/test_' + str(i) + '_label.png'
+        save_name = save_path_visual_result + '/test_' + str(i) + '.png'
         #
-        # bb, cc, hh, ww = v_images.size()
-        #
-        # for ccc in range(cc):
-        #     #
-        #     save_name_slice = save_path + '/test_' + imagename[0] + '_' + str(i) + '_slice_' + str(ccc) + '.png'
-        #     plt.imsave(save_name_slice, v_images[:, ccc, :, :].reshape(h, w).cpu().detach().numpy(), cmap='gray')
-        #
-        plt.imsave(save_name, np.hstack(sample_list), cmap='gray')
-        plt.imsave(save_name_label, labels_good.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+        images = [v_images[:, 1, :, :].reshape(h, w), labels_good.reshape(h, w).cpu().detach().numpy()] + sample_list
+        plt.imsave(save_name, np.hstack(images), cmap='gray')
         #
         if save_probability_map is True:
             for class_index in range(c):
                 #
                 if c > 0:
-                    v_outputs_logits = v_outputs_logits_o[:, class_index, :, :]
+                    v_outputs_logits = v_outputs_logits[:, class_index, :, :]
                     save_name = save_path_visual_result + '/test_' + str(i) + '_class_' + str(class_index) + '_seg_probability.png'
                     plt.imsave(save_name, v_outputs_logits.reshape(h, w).cpu().detach().numpy(), cmap='gray')
         #
@@ -311,9 +286,18 @@ def trainMNIST(model,
                 #
                 # print(cm_mse)
             #
-            v_noisy_output_original = torch.bmm(cm, v_outputs_logits_original).view(b*h*w, c)
-            v_noisy_output_original = v_noisy_output_original.view(b, h*w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
+            # v_noisy_output_original = torch.bmm(cm, v_outputs_logits_original).view(b*h*w, c)
+            # v_noisy_output_original = v_noisy_output_original.view(b, h*w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
+            # _, v_noisy_output = torch.max(v_noisy_output_original, dim=1)
+            # print('noisy ' + str(nnn) + ' of test ' + str(i))
+            # print(torch.sum(cm, dim=0) / (b * h * w))
+            save_name = save_path_visual_result + '/test_' + imagename[0] + '_' + str(i) + '_noisy_' + str(j) + '_seg.png'
             #
+            save_cm_name = save_path_visual_result + '/' + imagename[0] + '_cm.npy'
+            np.save(save_cm_name, cm.cpu().detach().numpy())
+            #
+            # plt.imsave(save_name, v_noisy_output.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+            
     # save model
     stop = timeit.default_timer()
     #
@@ -330,8 +314,7 @@ def trainMNIST(model,
     # path_model = save_model_name_full
     #
     # torch.save(model_cm, path_model)
-    #
-    result_dictionary = {'Test Dice': str(v_dice), 'Test CM MSE': str(cm_mse / (i + 1))}
+    result_dictionary = {'Test Dice': str(v_dice[0]) + '±' + str(v_dice[1]), 'Test CM MSE': str(cm_mse / (i + 1)), 'GED': str(v_ged[0]) + '±' + str(v_ged[1])}
     ff_path = saved_information_path + '/test_result_data.txt'
     ff = open(ff_path, 'w')
     ff.write(str(result_dictionary))
@@ -423,14 +406,47 @@ def calcPred(pred_seg_logits, cm):
 
     return train_output
 
+def cm_mse_fn(labels, label_good, cm_index, shape):
+    b, c, h, w = shape
+    cm_all_true = [calculate_cm(pred=label, true=label_good) for label in labels]
+    cm = cm.view(b, c**2, h*w).permute(0, 2, 1).contiguous().view(b*h*w, c*c).view(b*h*w, c, c)
+    cm = cm / cm.sum(1, keepdim=True)
+    #
+    if j < len(cm_all_true):
+        #
+        cm_pred_ = cm.sum(0) / (b*h*w)
+        #
+        # print(np.shape(cm_pred_))
+        #
+        cm_pred_ = cm_pred_.cpu().detach().numpy()
+        #
+        # print(np.shape(cm_pred_))
+        #
+        cm_true_ = cm_all_true[cm_index]
+        #
+        # print(np.shape(cm_true_))
+        #
+        cm_mse_each_label = cm_pred_ - cm_true_
+        #
+        cm_mse_each_label = cm_mse_each_label**2
+        # cm_mse_each_label = (cm.cpu().detach().numpy - cm_all_true[j])**2
+
+    return cm_mse_each_label.mean()
+
+
 def validate_stochastic(data_loader, model, device, epoch, num_epochs, ramp_up, alpha):
     model.eval()
 
     running_dice = 0
     running_kld_loss = 0
     running_seg_loss = 0
+    # running_ged = 0
     num_batches = len(data_loader)
     
+    dice_list = []
+    kld_list = []
+    seg_loss_list = []
+    ged_list = []
     with torch.no_grad():
         for j, (images, labels_over, labels_under, labels_wrong, labels_good, imagename) in enumerate(data_loader):
 
@@ -450,29 +466,42 @@ def validate_stochastic(data_loader, model, device, epoch, num_epochs, ramp_up, 
             # model has two outputs:
             # first one is the probability map for true ground truth
             # second one is a list collection of probability maps for different noisy ground truths
-            outputs_logits, sampled_cm, mean, logvar = model(images)
+            outputs_logits_original, sampled_cm, mean, logvar = model(images)
             # outputs = 0.9*outputs + 0.1*outputs_logits
-            
+            shape = outputs_logits_original.size()
+            b, c, h ,w = shape
             # calculate loss:
-            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits, sampled_cm, mean, logvar, labels_all, epoch, num_epochs, data='mnist', ramp_up=ramp_up, alpha=alpha)
+            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits_original, sampled_cm, mean, logvar, labels_all, epoch, num_epochs, data='mnist', ramp_up=ramp_up, alpha=alpha)
 
-            train_output = calcPred(outputs_logits, sampled_cm)
-            train_iou = seg_score(labels_good.numpy(), train_output.numpy())
-            
-            running_seg_loss += seg_loss
-            running_kld_loss += kldloss
-            running_dice += train_iou
+            output = calcPred(outputs_logits_original, sampled_cm)
+
+            dice = seg_score(labels_good.numpy(), output.numpy())
+            noisy_labels = [labels_over.reshape(h, w).numpy(), labels_under.reshape(h, w).numpy(), labels_wrong.reshape(h, w).numpy()]
+
+            outputs_logits_original = outputs_logits_original.reshape(b, c, h*w)
+            outputs_logits_original = outputs_logits_original.permute(0, 2, 1).contiguous()
+            outputs_logits_original = outputs_logits_original.view(b * h * w, c).view(b*h*w, c, 1)
+
+            noisy_segs = getSamples(outputs_logits_original, model, shape, sample_no=len(noisy_labels))
+
+            ged = generalized_energy_distance(noisy_labels, noisy_segs, class_no=2)
+
+            seg_loss_list.append(seg_loss)
+            kld_list.append(kldloss)
+            dice_list.append(dice)
+            ged_list.append(ged)
     
-    av_dice = running_dice / num_batches
-    av_kld = running_kld_loss / num_batches
-    av_seg_loss = running_seg_loss / num_batches
+    dice_met = eval_metric(dice_list)
+    seg_loss_met = eval_metric(seg_loss_list)
+    kld_met = eval_metric(kld_list)
+    ged_met = eval_metric(ged_list)
 
-    return av_dice, av_kld, av_seg_loss
+    return dice_met, kld_met, seg_loss_met, ged_met
 
 def test(data_loader, model, device, epoch, num_epochs, ramp_up, alpha):
     model.eval()
 
-    running_dice = 0
+    dice_list = []
     running_kld_loss = 0
     running_seg_loss = 0
     num_batches = len(data_loader)
@@ -503,15 +532,48 @@ def test(data_loader, model, device, epoch, num_epochs, ramp_up, alpha):
             seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits.detach(), sampled_cm.detatch(), mean.detatch(), logvar.detatch(), labels_all, epoch, num_epochs, data='mnist', ramp_up=ramp_up, alpha=alpha)
 
             train_output = calcPred(outputs_logits, sampled_cm)
-            train_iou = seg_score(labels_good.detach().numpy(), train_output.detach().numpy())
+            dice = seg_score(labels_good.detach().numpy(), train_output.detach().numpy())
             
             running_seg_loss += seg_loss
             running_kld_loss += kldloss
-            running_dice += train_iou
+            dice_list.append(dice)
+
     
-    av_dice = running_dice / num_batches
+    dice_mean, dice_std = eval_metric(dice_list)
     av_kld = running_kld_loss / num_batches
     av_seg_loss = running_seg_loss / num_batches
 
-    return av_dice, av_kld, av_seg_loss
+    return (dice_mean, dice_std), av_kld, av_seg_loss
 
+
+def getSamples(output_logits_original, model, shape, sample_no=5):
+    b, c, h, w = shape
+    samples = model.cm_network.sample(sample_no)
+
+    sample_list = []
+    for sample in samples:
+        sample_cm = torch.unsqueeze(sample, dim=0)
+
+        anti_corrpution_cm = sample_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
+        # anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
+        anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
+
+        # pred_norm_prob_noisy = pred_norm_prob_noisy.view(b, c, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c, 1)
+        outputs_clean = torch.bmm(anti_corrpution_cm, output_logits_original).view(b * h * w, c)
+        outputs_clean = outputs_clean.view(b, h * w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
+
+        # v_outputs_logits_original = nn.Softmax(dim=1)(v_outputs_logits_original)
+        _, v_outputs_logits = torch.max(outputs_clean, dim=1)
+
+        # save_name = save_path_visual_result + '/test_' + str(i) + '_seg_' + str(k) + '.png'
+        sample_list.append(v_outputs_logits.reshape(h, w).cpu().detach().numpy())
+        # plt.imsave(save_name, v_outputs_logits.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+
+    return sample_list
+
+def eval_metric(all_values):
+    mean = np.mean(all_values)
+    std = np.std(all_values)
+
+    std_err = std / np.sqrt(len(all_values))
+    return mean, std_err
