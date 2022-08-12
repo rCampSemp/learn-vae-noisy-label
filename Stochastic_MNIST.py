@@ -40,6 +40,7 @@ if __name__ == '__main__':
     latent = 512
     learning_rate = 1e-3  # learning rate DO NOT USE 1E-2!!
     ramp_up = 0.3 # This ramp up is necessary!!!
+    num_samples = 5 # Number of CM samples to take in testing
 
     # image resolution:
     mnist_resolution = 28
@@ -83,7 +84,7 @@ if __name__ == '__main__':
                      norm='in')
 
     # model name for saving:
-    model_name = 'UNet_TEST_Conditional_Stochastic_Confusion_Matrices_' + '_width' + str(width) + \
+    model_name = 'UNet_NoUnder_Conditional_Stochastic_Confusion_Matrices_' + '_width' + str(width) + \
                  '_depth' + str(depth) + '_train_batch_' + str(train_batchsize) + \
                  '_alpha_' + str(alpha) + '_e' + str(num_epochs) + \
                  '_lr' + str(learning_rate)
@@ -97,7 +98,7 @@ if __name__ == '__main__':
     # =================================================== #
 
     # save location:
-    saved_information_path = './Results/MNIST'
+    saved_information_path = './Results/MNIST/Ablation'
     try:
         os.mkdir(saved_information_path)
     except OSError as exc:
@@ -130,7 +131,7 @@ if __name__ == '__main__':
         pass
 
     # tensorboardX file saved location:
-    writer = SummaryWriter('./Results/MNIST/Log_' + model_name)
+    writer = SummaryWriter('./Results/MNIST/Ablation/Log/Log_' + model_name)
 
     # =================================================== #
     # Training
@@ -162,7 +163,7 @@ if __name__ == '__main__':
 
             labels_all = []
             labels_all.append(labels_over)
-            labels_all.append(labels_under)
+            # labels_all.append(labels_under)
             labels_all.append(labels_wrong)
             labels_all.append(labels_good)
 
@@ -222,44 +223,57 @@ if __name__ == '__main__':
     torch.save(model, save_model_name_full)
     print('\n')
     print('Training ended')
-
+    
     model.eval()
-    for i, (v_images, labels_over, labels_under, labels_wrong, labels_good, imagename) in enumerate(testloader):
-        v_images = v_images.to(device=device, dtype=torch.float32)
-        v_outputs_logits_original, sampled_cm, _, __ = model(v_images)
-        b, c, h, w = v_outputs_logits_original.size()
-        print(sampled_cm.shape)
-        # plot the final segmentation map
-        samples = model.cm_network.sample(5)
-        
-        # print(v_stochastic_cm.size())
-        # pred_norm_prob_noisy = nn.Softmax(dim=1)(v_outputs_logits_original)
-        pred_noisy = v_outputs_logits_original.view(b, c, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c, 1)
-        
-        sample_list = []
-        for k, sample in enumerate(samples):
-            sample_cm = torch.unsqueeze(sample, dim=0)
+    running_test_dice = 0
+    with torch.no_grad():
+        for i, (v_images, labels_over, labels_under, labels_wrong, labels_good, imagename) in enumerate(testloader):
+            v_images = v_images.to(device=device, dtype=torch.float32)
+            v_outputs_logits_original, sampled_cm, _, __ = model(v_images)
+            b, c, h, w = v_outputs_logits_original.size()
 
-            anti_corrpution_cm = sample_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
-            # anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
-            anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
-
-            # pred_norm_prob_noisy = pred_norm_prob_noisy.view(b, c, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c, 1)
-            outputs_clean = torch.bmm(anti_corrpution_cm, pred_noisy).view(b * h * w, c)
-            v_outputs_logits_original = outputs_clean.view(b, h * w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
-
-            # v_outputs_logits_original = nn.Softmax(dim=1)(v_outputs_logits_original)
-            _, v_outputs_logits = torch.max(v_outputs_logits_original, dim=1)
-
-            # save_name = save_path_visual_result + '/test_' + str(i) + '_seg_' + str(k) + '.png'
-            sample_list.append(v_outputs_logits.reshape(h, w).cpu().detach().numpy())
-            # plt.imsave(save_name, v_outputs_logits.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+            # plot the final segmentation map
+            samples = model.cm_network.sample(num_samples)
             
-        save_name_samples = save_path_visual_result + '/test_' + str(i) + '_seg_samples'  + '.png'
-        plt.imsave(save_name_samples, np.hstack(sample_list), cmap='gray')
+            # print(v_stochastic_cm.size())
+            # pred_norm_prob_noisy = nn.Softmax(dim=1)(v_outputs_logits_original)
+            pred_noisy = v_outputs_logits_original.view(b, c, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c, 1)
+            
+            sample_list = [v_images[:, 1, :, :].reshape(h, w).cpu().detach().numpy(), labels_good.reshape(h, w).cpu().detach().numpy()]
+            av_sampled_dice = 0
+            for k, sample in enumerate(samples):
+                sample_cm = torch.unsqueeze(sample, dim=0)
 
-        save_name_slice = save_path_visual_result + '/test_' + str(i) + '_img.png'
-        plt.imsave(save_name_slice, v_images[:, 1, :, :].reshape(h, w).cpu().detach().numpy(), cmap='gray')
+                anti_corrpution_cm = sample_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
+                # anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
+                anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
 
-        save_name_label = save_path_visual_result + '/test_' + str(i) + '_label.png'
-        plt.imsave(save_name_label, labels_good.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+                # pred_norm_prob_noisy = pred_norm_prob_noisy.view(b, c, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c, 1)
+                outputs_clean = torch.bmm(anti_corrpution_cm, pred_noisy).view(b * h * w, c)
+                v_outputs_logits_original = outputs_clean.view(b, h * w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
+
+                # v_outputs_logits_original = nn.Softmax(dim=1)(v_outputs_logits_original)
+                _, v_outputs_logits = torch.max(v_outputs_logits_original, dim=1)
+
+                test_dice = seg_score(labels_good, v_outputs_logits)
+                av_sampled_dice += test_dice / num_samples
+
+                # save_name = save_path_visual_result + '/test_' + str(i) + '_seg_' + str(k) + '.png'
+                sample_list.append(v_outputs_logits.reshape(h, w).cpu().detach().numpy())
+                # plt.imsave(save_name, v_outputs_logits.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+            running_test_dice += av_sampled_dice / len(testloader)
+
+            save_name_samples = save_path_visual_result + '/test_' + str(i)  + '.png'
+            plt.imsave(save_name_samples, np.hstack(sample_list), cmap='gray')
+
+            # save_name_slice = save_path_visual_result + '/test_' + str(i) + '_img.png'
+            # plt.imsave(save_name_slice, v_images[:, 1, :, :].reshape(h, w).cpu().detach().numpy(), cmap='gray')
+
+            # save_name_label = save_path_visual_result + '/test_' + str(i) + '_label.png'
+            # plt.imsave(save_name_label, labels_good.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+
+    results = 'Test Dice:' + str(running_test_dice)
+    ff_path = saved_information_path + '/test_result_data.txt'
+    ff = open(ff_path, 'w')
+    ff.write(results)
+    ff.close()

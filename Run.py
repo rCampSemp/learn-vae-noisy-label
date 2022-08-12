@@ -5,7 +5,8 @@ import torch
 # from Train_ours import trainModels
 # from Train_GCM import trainGCMModels
 # from Train_punet import train_punet
-from Train_LIDC import trainModels
+# from Train_LIDC import trainModels
+from Train_VAE import trainStoch
 # torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
@@ -31,17 +32,17 @@ if __name__ == '__main__':
     # ==========================================
     # for training with our model
     # ==========================================
-    trainModels(input_dim=1,
-                class_no=2,
-                repeat=1,
-                train_batchsize=5,
-                validate_batchsize=1,
-                num_epochs=50,
-                learning_rate=1e-4,
-                width=12,
-                depth=3,
-                data_path='./LIDC_examples',
-                save_probability_map=True)
+    # trainModels(input_dim=1,
+    #             class_no=2,
+    #             repeat=1,
+    #             train_batchsize=5,
+    #             validate_batchsize=1,
+    #             num_epochs=50,
+    #             learning_rate=1e-4,
+    #             width=12,
+    #             depth=3,
+    #             data_path='./LIDC_examples',
+    #             save_probability_map=True)
     #
     # ============================================
     # for baseline with global confusion  matrices
@@ -95,7 +96,22 @@ if __name__ == '__main__':
     #             test_samples_no=10,
     #             dataset_path='Path',
     #             dataset_tag='mnist')
-    # # #
-
-    #
+    # ==========================================
+    # for training with our model with VAE CM
+    # ==========================================
+    trainStoch(input_dim=3,
+                class_no=2,
+                repeat=3,
+                train_batchsize=5,
+                validate_batchsize=1,
+                num_epochs=30,
+                learning_rate=1e-3,
+                width=24,
+                depth=3,
+                data_path='./MNIST_examples',
+                dataset_tag='mnist',
+                label_mode='multi',
+                ramp_up=0.2,
+                alpha=1.0,
+                save_probability_map=False)
 

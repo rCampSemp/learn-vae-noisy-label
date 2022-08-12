@@ -59,6 +59,7 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch
     pred_clean = pred_clean.view(b, h*w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
 
     _, pseudo_labels = torch.max(pred, dim=1)
+
     ramp_up_threshold = int(total_epoch*ramp_up)
 
     # loss = nn.CrossEntropyLoss(reduction='mean')(pred, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_clean, pseudo_labels.long())
@@ -95,54 +96,6 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch
     # loss_mse = nn.MSELoss(reduction='mean')(torch.softmax(pred_prior, dim=1), torch.softmax(pred_sample, dim=1))
     # loss = loss_mse + loss_posterior + loss_likelihood + loss_regularisation + loss_prior
     return loss, kld_loss
-
-# def global_stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch, ramp_up=0.5, alpha=1.0):
-#     # regularisation = 0.0
-#     b, c, h, w = pred.size()
-#
-#     # normalise the segmentation output tensor along dimension 1
-#     pred_norm_prob = nn.Softmax(dim=1)(pred)
-#
-#     # b x c x h x w ---> b x hw x c
-#     pred_norm = pred_norm_prob.view(b, c, h*w).permute(0, 2, 1).contiguous()
-#
-#     # cm: learnt confusion matrix for each noisy label, b x c**2
-#     # label_noisy: noisy label, b x h x w
-#     # convex combination of noisy labels:
-#     weights = np.random.dirichlet((1, 1, 1, 1), size=1)
-#     for i, each_label in enumerate(labels):
-#         if i == 0:
-#             label = each_label*weights[0][i]
-#         else:
-#             label += each_label*weights[0][i]
-#     label = (label > 0.5).float()
-#     # random choice:
-#     # label = random.choice(labels)
-#
-#     # b x c**2 ---> b x c x c
-#     cm = cm.view(b, c ** 2).view(b, c, c)
-#
-#     # normalisation along the rows:
-#     # cm = cm / cm.sum(1, keepdim=True)
-#     cm = torch.softmax(cm, dim=1)
-#
-#     # matrix multiplication to calculate the predicted noisy segmentation:
-#     # cm: b x c x c
-#     # pred_noisy: b x h*w x c
-#     pred_noisy = torch.bmm(cm, pred_norm).view(b*h*w, c)
-#     pred_noisy = pred_noisy.view(b, h*w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
-#
-#     ramp_up_threshold = int(total_epoch*ramp_up)
-#     if epoch < ramp_up_threshold:
-#         beta_current = epoch / ramp_up_threshold
-#         loss = beta_current*nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long()) + (1 - beta_current)*nn.CrossEntropyLoss(reduction='mean')(pred_norm_prob, label.view(b, h, w).long())
-#         kld_loss = alpha * (epoch / ramp_up_threshold) * torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
-#     else:
-#         loss = nn.CrossEntropyLoss(reduction='mean')(pred_noisy, label.view(b, h, w).long())
-#         kld_loss = alpha*torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
-#
-#     return loss, kld_loss
-
 
 def dice_loss(input, target):
     """ This is a normal dice loss function for binary segmentation.
