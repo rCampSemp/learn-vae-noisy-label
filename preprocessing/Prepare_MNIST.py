@@ -1,169 +1,120 @@
+import torch
+from torchvision.datasets import MNIST 
 import os
-import gzip
-import errno
-import shutil
-import random
-# import pydicom
+import cv2
 import numpy as np
-from PIL import Image
-import nibabel as nib
-import matplotlib.pyplot as plt
-
-from scipy.ndimage.morphology import binary_fill_holes
-from skimage.transform import resize
-# from nipype.interfaces.ants import N4BiasFieldCorrection
 from tifffile import imsave
 
+trainset = MNIST('../../MNIST_data/Train', train=True, download=True)
+testset = MNIST('../../MNIST_data/Test', train=False, download=True)
 
-def chunks(l, n):
-    # l: the whole list to be divided
-    # n: amount of elements for each subgroup
-    # Yield successive n-sized chunks from l
-    for i in range(0, len(l), n):
-        yield l[i:i + n]
+def divide_cases(trainset, testset):
+    """Divides mnist datasets into train val and test split datasets.
 
+    Args:
+        trainset (_type_): MNIST dataset train
+        testset (_type_): MNIST dataset test
 
-def divide_data(data_folder):
-    #
-    all_cases = os.listdir(data_folder)
-    all_cases = [os.path.join(data_folder, x) for index, x in enumerate(all_cases)]
-    random.shuffle(all_cases)
-    #
-    all_cases = list(chunks(all_cases, len(all_cases) // 10))
-    #
-    all_test = all_cases[0] + all_cases[1]
-    all_validate = all_cases[2]
-    all_train = all_cases[3] + all_cases[4] + all_cases[5] + \
-                all_cases[6] + all_cases[7] + all_cases[8] + \
-                all_cases[9]
+    Returns:
+            - train_set (subset)
+            - val_set (subset)
+            - testset (Dataset)
+    """
 
-    return all_train, all_validate, all_test
+    train_set, val_set = torch.utils.data.random_split(trainset, [50000, 10000])
+    return train_set, val_set, testset
 
+def split_modes(dataset, split_no=5):
+    data_len = len(dataset)
+    split_list = [int(data_len/split_no) for _ in range(split_no-1)] 
+    # final split to sum to len(dataset)
+    split_list_final = split_list + [data_len - sum(split_list)]
+    modes = torch.utils.data.random_split(dataset, split_list_final)
+    return modes
+# guassian 0-1, masks 0 or 1
 
-def generate_patches(all_cases, save_path, tag):
-    # - train
-    #   - mean
-    #   - gaussian
-    #   - over
-    #   - under
-    # - validate
-    #   - mean
-    #   - gaussian
-    #   - over
-    #   - under
-    # save mother folders:
-    save_path = save_path + '/' + tag
-    # selected modalities:
-    try:
-        os.makedirs(save_path)
-    except OSError as exc:
-        if exc.errno != errno.EEXIST:
-            raise
-    pass
-    #
-    for case in all_cases:
-        #
-        fullfilename, extenstion = os.path.splitext(case)
-        dirpath_parts = fullfilename.split('/')
-        case_index = dirpath_parts[-1]
-        dirpath_parts = case_index.split('.')
-        case_index = dirpath_parts[0]
-        #
-        print(case_index)
-        #
-        all_data = os.listdir(case)
-        all_data = [os.path.join(case, x) for index, x in enumerate(all_data) if 'Mean.nii.gz' in x
-                    or 'Over.nii.gz' in x
-                    or 'Under.nii.gz' in x
-                    or 'Wrong.nii.gz' in x
-                    or 'GT.nii.gz' in x
-                    or 'Gaussian.nii.gz' in x]
-        #
-        for data_path in all_data:
-            #
-            f_data = nib.load(data_path)
-            #
-            f_data = f_data.get_fdata()
-            #
-            f_data = np.asarray(f_data, dtype=np.float32)
-            #
-            if 'Gaussian.nii.gz' in data_path:
-                f_data = f_data
-            else:
-                f_data = f_data[:, :, 1]
-                unique, counts = np.unique(f_data, return_counts=True)
-                if 'Mean' not in data_path:
-                    if len(unique) != 2:
-                        f_data = np.where(f_data > 40.0, 1.0, 0.0)
-                        unique, counts = np.unique(f_data, return_counts=True)
-                # print(len(unique))
-
-            #
-            data_dirpath_parts = data_path.split('/')
-            modality = data_dirpath_parts[-1]
-            modality_parts = modality.split('.')
-            modality = modality_parts[0]
-            save_path_specific = save_path + '/' + modality
-            print(modality)
-            print(f_data.shape)
-            # print(np.unique(f_data))
-            #
-            try:
-                #
-                os.makedirs(save_path_specific)
-                #
-            except OSError as exc:
-                #
-                if exc.errno != errno.EEXIST:
-                    #
-                    raise
-            pass
-            #
-            # plt.show()
-            # plt.imshow(f_data)
-            # print(np.unique(f_data))
-            save_name = save_path_specific + '/' + case_index + '_' + modality + '.tif'
-            imsave(save_name, f_data)
-            print(case_index + '_' + modality + '.tif' + ' is saved')
-            print('\n')
-            #
+train_modes, val_modes, test_modes = divide_cases(trainset, testset)
 
 
-def main_loop(data_folder, store_folder, tag):
+def gauss_transform(img, mean=2, std=5, weight=0.5):
+    # img, label
+    img = img.copy()
+    gaussian = np.uint8(np.random.normal(mean, std, (img.shape[0],img.shape[1])))
+    # 0 - 255 to 0 - 1 range
+    img = cv2.addWeighted(img, 1.0, gaussian, weight, 0) / 255
+    return img
 
-    try:
-        os.makedirs(store_folder)
-    except OSError as exc:
-        if exc.errno != errno.EEXIST:
-            raise
-    pass
+def main(data, save_path, split):
+    """main process
 
-    # train_cases, validate_cases, test_cases = divide_data(data_folder=data_folder)
+    Args:
+        data (_type_): _description_
+        save_path (_type_): _description_
+        split (_type_): _description_
+    """
 
-    cases = [os.path.join(data_folder, x) for x in os.listdir(data_folder)]
+    save_path = save_path + split
+    os.makedirs(save_path, exist_ok=True)
+    
+    save_gauss = save_path + '/Gaussian'
+    save_GT = save_path + '/GT'
+    save_over = save_path + '/Over'
+    save_under = save_path + '/Under'
+    save_wrong = save_path + '/Wrong'
 
-    generate_patches(all_cases=cases, save_path=store_folder, tag=tag)
+    os.makedirs(save_gauss, exist_ok=True)
+    os.makedirs(save_GT, exist_ok=True)
+    os.makedirs(save_over, exist_ok=True)
+    os.makedirs(save_under, exist_ok=True)
+    os.makedirs(save_wrong, exist_ok=True)
 
-    # generate_patches(all_cases=validate_cases, save_path=store_folder, tag='validate')
+    kernel = np.ones((2, 2), np.uint8)
 
-    # generate_patches(all_cases=test_cases, save_path=store_folder, tag='test')
+    for idx, (img, _) in enumerate(data):
 
+        img = np.asarray(img, dtype=np.uint8)
+
+        gauss_img = gauss_transform(img)
+        # make gauss img 3 channels for compatibility with customdataset_punet
+        gauss_img = gauss_img.reshape((28, 28, 1)).repeat(3, -1) # repeat the last (-1) dimension three times
+
+        under_img = cv2.erode(img, kernel, iterations=2)
+        over_img = cv2.dilate(img, kernel, iterations=2)
+
+        # 2 stage opration to form wrong operation
+        wrong_img = cv2.morphologyEx(img, cv2.MORPH_TOPHAT, kernel)
+        wrong_img = cv2.dilate(wrong_img, kernel, iterations=4)
+
+        save_gauss_file = save_gauss + '/' + str(idx) + '_Gaussian.tif'
+        save_under_file = save_under + '/' + str(idx) + '_Under.tif'
+        save_over_file = save_over + '/' + str(idx) + '_Over.tif'
+        save_wrong_file = save_wrong + '/' + str(idx) + '_Wrong.tif'
+        save_GT_file = save_GT + '/' + str(idx) + '_GT.tif'
+
+
+        (_, wrong_img) = cv2.threshold(wrong_img, 127, 1,
+            cv2.THRESH_BINARY)
+        (_, under_img) = cv2.threshold(under_img, 0, 1,
+            cv2.THRESH_BINARY)
+        (_, over_img) = cv2.threshold(over_img, 0, 1,
+            cv2.THRESH_BINARY)
+        (_, GT_img) = cv2.threshold(img, 0, 1,
+            cv2.THRESH_BINARY)
+
+        imsave(save_gauss_file, gauss_img)
+        imsave(save_GT_file, GT_img)
+        imsave(save_over_file, over_img)
+        imsave(save_under_file, under_img)
+        imsave(save_wrong_file, wrong_img)
 
 if __name__ == '__main__':
-    #
-    # data_folder = '/home/moucheng/projects_data/Testing_Le'
-    # data_folder = '/home/moucheng/projects_data/Training_MNIST'
-    # save_folder = '/home/moucheng/projects_data/MNIST_train'
+    trainset = MNIST('../../MNIST_data/Train', train=True, download=True)
+    testset = MNIST('../../MNIST_data/Test', train=False, download=True)
 
-    data_folder = '../data_examples/MNIST_training'
-    save_folder = '../MNIST_samples/training'
+    train, val, test = divide_cases(trainset, testset)
+    save_path = '../MNIST_data'
+    main(train, save_path, '/train')
+    main(val, save_path, '/validate')
+    main(test, save_path, '/test')
 
-    main_loop(data_folder, save_folder, tag='train')
-    #
-    data_folder = '/home/moucheng/projects_data/Training_MNIST'
-    #
-    main_loop(data_folder, save_folder, tag='test')
-    #
-    main_loop(data_folder, save_folder, tag='validate')
-    #
-print('End')
+    print("MNIST loading completed.")
