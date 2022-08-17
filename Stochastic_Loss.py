@@ -3,6 +3,7 @@ import random
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+import cv2
 torch.backends.cudnn.deterministic = True
 # =======================================
 
@@ -17,6 +18,12 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch
         label = random.choice(labels)
     elif data == 'lidc':
         label = labels[:,:,:,:,np.random.choice(labels.shape[4])]
+
+    betas = frange_cycle_linear(total_epoch)
+
+    beta = betas[epoch]
+        # for idx in range(labels.shape[4]):
+        #     label += labels[:,:,:,:,idx]
     # # self attention on pred norm:
     # pred_theta = pred.view(b, c, h * w)
     # pred_phi = pred.view(b, c, h * w).permute(0, 2, 1).contiguous()
@@ -79,14 +86,19 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch
     #     kld_loss = alpha*torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
 
     # loss = nn.CrossEntropyLoss(reduction='mean')(pred_prior, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_sample, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_clean, pseudo_labels.long()) + nn.MSELoss(reduction='mean')(pred_prior, pred_sample)
+    # if epoch < ramp_up_threshold:
+    #     beta_current = epoch / ramp_up_threshold
+    #     loss = nn.CrossEntropyLoss(reduction='mean')(pred, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_clean, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_clean, pseudo_labels.long())
+    #     kld_loss = alpha * beta_current * torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
+    # else: 
+    #     kld_loss = alpha * torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
+    #     loss = nn.CrossEntropyLoss(reduction='mean')(pred, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_clean, pseudo_labels.long())
     if epoch < ramp_up_threshold:
-        beta_current = epoch / ramp_up_threshold
+        # beta_current = epoch / ramp_up_threshold
         loss = nn.CrossEntropyLoss(reduction='mean')(pred, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_clean, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_clean, pseudo_labels.long())
-        kld_loss = alpha * beta_current * torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
     else: 
-        kld_loss = alpha * torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
         loss = nn.CrossEntropyLoss(reduction='mean')(pred, label.view(b, h, w).long()) + nn.CrossEntropyLoss(reduction='mean')(pred_clean, pseudo_labels.long())
-
+    kld_loss = alpha * beta * torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
     # print(kld_loss)
 
     # loss_prior = nn.CrossEntropyLoss(reduction='mean')(pred_prior, labels.view(b, h, w).long())
@@ -119,3 +131,27 @@ def dice_loss(input, target):
     return 1-dice_score
 
 
+def frange_cycle_linear(n_iter, start=0.0, stop=1.0,  n_cycle=10, ratio=0.5):
+    """cyclic KL annealing from "Cyclical Annealing Schedule: A Simple Approach to Mitigating KL Vanishing" - Hao Fu et al.
+
+    Args:
+        n_iter (_type_): _description_
+        start (float, optional): _description_. Defaults to 0.0.
+        stop (float, optional): _description_. Defaults to 1.0.
+        n_cycle (int, optional): _description_. Defaults to 10.
+        ratio (float, optional): _description_. Defaults to 0.5.
+
+    Returns:
+        _type_: _description_
+    """
+    L = np.ones(n_iter) * stop
+    period = n_iter/n_cycle
+    step = (stop-start)/(period*ratio) # linear schedule
+
+    for c in range(n_cycle):
+        v, i = start, 0
+        while v <= stop and (int(i+c*period) < n_iter):
+            L[int(i+c*period)] = v
+            v += step
+            i += 1
+    return L 
