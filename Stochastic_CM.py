@@ -89,10 +89,10 @@ class cm_net(nn.Module):
     """
     def __init__(self, c, h, w, class_no=2, latent=512):
         super(cm_net, self).__init__()
-        self.fc_encoder = nn.Linear(c * h * w, 128)
+        self.fc_encoder = nn.Linear(c * h * w, latent // 2)
         self.fc_decoder = nn.Linear(latent, h * w * class_no ** 2)
-        self.fc_mu = nn.Linear(128, latent)
-        self.fc_var = nn.Linear(128, latent)
+        self.fc_mu = nn.Linear(latent // 2, latent)
+        self.fc_var = nn.Linear(latent // 2, latent)
 
         self.latent = latent
 

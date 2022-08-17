@@ -412,7 +412,7 @@ def cm_mse_fn(labels, label_good, cm_index, shape):
     cm = cm.view(b, c**2, h*w).permute(0, 2, 1).contiguous().view(b*h*w, c*c).view(b*h*w, c, c)
     cm = cm / cm.sum(1, keepdim=True)
     #
-    if j < len(cm_all_true):
+    if cm_index < len(cm_all_true):
         #
         cm_pred_ = cm.sum(0) / (b*h*w)
         #

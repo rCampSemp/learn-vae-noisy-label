@@ -18,6 +18,10 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch
         label = random.choice(labels)
     elif data == 'lidc':
         label = labels[:,:,:,:,np.random.choice(labels.shape[4])]
+    elif data == 'lidc-sum':
+        label = torch.sum(labels, dim=4)
+        label[label > 1] = 1.0
+
 
     betas = frange_cycle_linear(total_epoch)
 
