@@ -9,7 +9,6 @@ import random
 import pandas as pd
 from collections import defaultdict
 import cv2 as cv
-from torch import equal
 
 class PrepareLIDC:
     def __init__(self, LIDC_path, save_path, clevel, mask_threshold, resolution, meta_keys, hist=None, cliplimit=0.2) -> None:
@@ -131,7 +130,7 @@ class PrepareLIDC:
         return averages
 
     def _standardize(self, img):
-        std_img = ( img - img.mean() ) / img.std()
+        std_img = ( img - img.mean(axis=(0,1), keepdims=True) ) / img.std(axis=(0,1), keepdims=True)
         return std_img
 
     def zeroto255(self, img):
@@ -210,7 +209,7 @@ class PrepareLIDC:
                     for slice_idx in range(numslices):
                         nod_size = np.sum(cmask[:,:,:,slice_idx])
 
-                        if nod_size <= self.mask_threshold or cmask.shape[1] != self.res or cmask.shape[2] != self.res or scan_img.shape[0] != self.res or scan_img.shape[1] != self.res:
+                        if nod_size <= self.mask_threshold or nod_size >= 800 or cmask.shape[1] != self.res or cmask.shape[2] != self.res or scan_img.shape[0] != self.res or scan_img.shape[1] != self.res:
                             continue
                         nod_size_list.append(nod_size)
 
@@ -221,7 +220,7 @@ class PrepareLIDC:
                     
                         #save scan of lung
                         if self.hist is None:
-                            new_scan_img = self.zeroto255(scan_img[:,:,slice_idx])
+                            new_scan_img = self._standardize(scan_img[:,:,slice_idx])
                         elif self.hist == 'clahe':
                             new_scan_img = self.clahe_fn(scan_img[:,:,slice_idx])
                         elif self.hist == 'equal':                            
@@ -264,9 +263,9 @@ if __name__ == '__main__':
     keylist = ['patient_id','nodule_no','subtlety', 'internalStructure', 'calcification', 'sphericity', 'margin', 'lobulation', 'spiculation', 'texture', 'malignancy']
 
     path_lidc = '/home/rhys/Documents/datasets/full_LIDC/LIDC-IDRI/'
-    save_path = '../LIDC_data'
+    save_path = '../LIDC_examples'
 
-    lidc_process = PrepareLIDC(path_lidc, save_path, clevel=0.5, mask_threshold=0, resolution=64, meta_keys=keylist, hist=None)
+    lidc_process = PrepareLIDC(path_lidc, save_path, clevel=0.5, mask_threshold=30, resolution=64, meta_keys=keylist, hist=None)
     lidc_process.prepare_data()
 
     print('End')

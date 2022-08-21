@@ -69,9 +69,10 @@ def main(data, save_path, split):
     os.makedirs(save_wrong, exist_ok=True)
 
     kernel = np.ones((2, 2), np.uint8)
-
+    
+    # labels not needed
     for idx, (img, _) in enumerate(data):
-
+        # opencv compatible type
         img = np.asarray(img, dtype=np.uint8)
 
         gauss_img = gauss_transform(img)
@@ -81,8 +82,13 @@ def main(data, save_path, split):
         under_img = cv2.erode(img, kernel, iterations=2)
         over_img = cv2.dilate(img, kernel, iterations=2)
 
-        # 2 stage opration to form wrong operation
-        wrong_img = cv2.morphologyEx(img, cv2.MORPH_TOPHAT, kernel)
+        # morpological operations to produce wrong segmentation
+        rows, cols = img.shape
+        M = cv2.getRotationMatrix2D(((cols-1)/2.0,(rows-1)/2.0),135,1)
+        wrong_img = cv2.warpAffine(img,M,(cols,rows))
+        wrong_img = cv2.morphologyEx(wrong_img, cv2.MORPH_TOPHAT, kernel)
+        wrong_img = cv2.dilate(wrong_img, kernel, iterations=4)
+        wrong_img = cv2.morphologyEx(wrong_img, cv2.MORPH_TOPHAT, kernel)
         wrong_img = cv2.dilate(wrong_img, kernel, iterations=4)
 
         save_gauss_file = save_gauss + '/' + str(idx) + '_Gaussian.tif'
@@ -92,7 +98,7 @@ def main(data, save_path, split):
         save_GT_file = save_GT + '/' + str(idx) + '_GT.tif'
 
 
-        (_, wrong_img) = cv2.threshold(wrong_img, 127, 1,
+        (_, wrong_img) = cv2.threshold(wrong_img, 50, 1,
             cv2.THRESH_BINARY)
         (_, under_img) = cv2.threshold(under_img, 0, 1,
             cv2.THRESH_BINARY)
