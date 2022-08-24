@@ -1,21 +1,17 @@
 import os
 import errno
-from re import I
-from wsgiref import validate
 import torch
 from adamW import AdamW
 import timeit
-import imageio
 import numpy as np
-import torch.nn as nn
 import matplotlib.pyplot as plt
-import torch.functional as F
 from torch.utils import data
+import pandas as pd
 
-from Utilis import evaluate_LIDC, seg_score, generalized_energy_distance, validate_LIDC
+from Utilis import seg_score, generalized_energy_distance
 from tensorboardX import SummaryWriter
 
-from Utilis import CustomDataset_punet, calculate_cm
+from Utilis import CustomDataset_punet, calculate_cm, CustomDataset_LIDC, LIDC_collate
 from Stochastic_CM import UNet_SCM
 from Stochastic_Loss import stochastic_noisy_label_loss
 
@@ -28,11 +24,12 @@ def trainStoch(input_dim,
                 learning_rate,
                 width,
                 depth,
+                resolution,
                 data_path,
                 dataset_tag,
-                label_mode,
-                ramp_up,
-                alpha,
+                label_mode=None,
+                ramp_up=0.3,
+                alpha=20.0,
                 save_probability_map=True):
 
     """ This is the panel to control the hyper-parameter of training of our methods.
@@ -62,31 +59,51 @@ def trainStoch(input_dim,
     for j in range(1, repeat + 1):
         #
         Stochastic_net = UNet_SCM(in_ch=input_dim,
-                            resolution=28,
+                            resolution=resolution,
                             width=width,
                             depth=depth,
-                            latent=512,
+                            latent=6,
                             class_no=class_no,
                             norm='in')
 
-        Exp_name = '1211_UNet_DCMs_Direct_' + '_width' + str(width) + \
+        Exp_name = str(dataset_tag) + 'OnlyOver' + '_width' + str(width) + \
                    '_depth' + str(depth) + '_train_batch_' + str(train_batchsize) + \
                    '_repeat' + str(j) + '_e' + str(num_epochs) + \
                    '_lr' + str(learning_rate) + '_save_probability_' + str(save_probability_map) 
 
         # ====================================================================================================================================================================
-        trainloader, validateloader, testloader = getData(train_batchsize, validate_batchsize, data_path, dataset_tag, label_mode)
-        # ================================
-        trainMNIST(Stochastic_net,
-                         Exp_name,
-                         num_epochs,
-                         learning_rate,
-                         trainloader,
-                         validateloader,
-                         testloader,
-                         ramp_up=ramp_up,
-                         alpha=alpha,
-                         save_probability_map=save_probability_map)
+        if dataset_tag == 'lidc':
+            trainloader, validateloader, testloader, meta_df = getData(train_batchsize, validate_batchsize, data_path, dataset_tag, label_mode)
+            
+            # ================================
+            trainVAE(Stochastic_net,
+                            Exp_name,
+                            num_epochs,
+                            learning_rate,
+                            trainloader,
+                            validateloader,
+                            testloader,
+                            ramp_up=ramp_up,
+                            alpha=alpha,
+                            datatag=dataset_tag,
+                            meta_df=meta_df,
+                            save_probability_map=save_probability_map)
+
+        elif dataset_tag == 'mnist':
+            trainloader, validateloader, testloader = getData(train_batchsize, validate_batchsize, data_path, dataset_tag, label_mode)
+
+            # ================================
+            trainVAE(Stochastic_net,
+                            Exp_name,
+                            num_epochs,
+                            learning_rate,
+                            trainloader,
+                            validateloader,
+                            testloader,
+                            ramp_up=ramp_up,
+                            alpha=alpha,
+                            datatag=dataset_tag,
+                            save_probability_map=save_probability_map)
 
 
 def getData(train_batchsize, validate_batchsize, data_path, dataset_tag, label_mode):
@@ -94,23 +111,39 @@ def getData(train_batchsize, validate_batchsize, data_path, dataset_tag, label_m
     train_path = data_path + '/train'
     validate_path = data_path + '/validate'
     test_path = data_path + '/test'
+    if dataset_tag == 'lidc':
+        # get meta file as dataframe
+        meta_file = data_path + '/meta/metadata.csv'
+        meta_df = pd.read_csv(meta_file)
+        # 
+        train_dataset = CustomDataset_LIDC(dataset_location=train_path, augmentation=True)
+        validate_dataset = CustomDataset_LIDC(dataset_location=validate_path, augmentation=False)
+        test_dataset = CustomDataset_LIDC(dataset_location=test_path, augmentation=False)
+        # 
+        # Dataloaders with custom collate_fn for LIDC data
+        trainloader = data.DataLoader(train_dataset, batch_size=train_batchsize, shuffle=True, num_workers=5, drop_last=True, collate_fn=LIDC_collate)
+        validateloader = data.DataLoader(validate_dataset, batch_size=validate_batchsize, shuffle=False, num_workers=validate_batchsize, drop_last=False, collate_fn=LIDC_collate)
+        testloader = data.DataLoader(test_dataset, batch_size=validate_batchsize, shuffle=False, num_workers=validate_batchsize, drop_last=False, collate_fn=LIDC_collate)
+        #
+        return trainloader, validateloader, testloader, meta_df
     #
-    # prepare data sets using our customdataset
-    train_dataset = CustomDataset_punet(dataset_location=train_path, dataset_tag=dataset_tag, noisylabel=label_mode, augmentation=True)
-    validate_dataset = CustomDataset_punet(dataset_location=validate_path, dataset_tag=dataset_tag, noisylabel=label_mode, augmentation=False)
-    test_dataset = CustomDataset_punet(dataset_location=test_path, dataset_tag=dataset_tag, noisylabel=label_mode, augmentation=False)
+    elif dataset_tag == 'mnist':
+        # prepare data sets using our customdataset
+        train_dataset = CustomDataset_punet(dataset_location=train_path, dataset_tag=dataset_tag, noisylabel=label_mode, augmentation=True)
+        validate_dataset = CustomDataset_punet(dataset_location=validate_path, dataset_tag=dataset_tag, noisylabel=label_mode, augmentation=False)
+        test_dataset = CustomDataset_punet(dataset_location=test_path, dataset_tag=dataset_tag, noisylabel=label_mode, augmentation=False)
 
-    # putting dataset into data loaders
-    trainloader = data.DataLoader(train_dataset, batch_size=train_batchsize, shuffle=True, num_workers=2, drop_last=True)
-    validateloader = data.DataLoader(validate_dataset, batch_size=validate_batchsize, shuffle=False, drop_last=False)
-    testloader = data.DataLoader(test_dataset, batch_size=1, shuffle=False, drop_last=False)
-    #
-    return trainloader, validateloader, testloader
+        # putting dataset into data loaders
+        trainloader = data.DataLoader(train_dataset, batch_size=train_batchsize, shuffle=True, num_workers=2, drop_last=True)
+        validateloader = data.DataLoader(validate_dataset, batch_size=validate_batchsize, shuffle=False, drop_last=False)
+        testloader = data.DataLoader(test_dataset, batch_size=1, shuffle=False, drop_last=False)
+        #
+        return trainloader, validateloader, testloader
 
 # =====================================================================================================================================
 
 
-def trainMNIST(model,
+def trainVAE(model,
                      model_name,
                      num_epochs,
                      learning_rate,
@@ -119,13 +152,15 @@ def trainMNIST(model,
                      testloader,
                      ramp_up,
                      alpha,
-                     save_probability_map):
+                     datatag,
+                     meta_df=None,
+                     save_probability_map=False):
     #
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     #
     save_model_name = model_name
     #
-    saved_information_path = './Results/MNIST'
+    saved_information_path = './Results/Ablation/' + str(datatag)
     #
     try:
         os.makedirs(saved_information_path)
@@ -159,13 +194,32 @@ def trainMNIST(model,
             raise
         pass
     #
+    saved_cm_path = save_path_visual_result + '/cms'
+    try:
+        os.mkdir(saved_cm_path)
+    except OSError as exc:
+        if exc.errno != errno.EEXIST:
+            raise
+        pass
+    #
+    if datatag == 'lidc':
+        # data paths to split results depending on ease of detection by annotators
+        save_path_subtlety = save_path_visual_result + '/subtlety_'
+        #
+        for i in range(1, 6):
+            try:
+                os.mkdir(save_path_subtlety + str(i))
+            except OSError as exc:
+                if exc.errno != errno.EEXIST:
+                    raise       
+    #
     print('The current model is:')
     #
     print(save_model_name)
     #
     print('\n')
     #
-    writer = SummaryWriter('./Results/MNIST/Log/Log_' + model_name)
+    writer = SummaryWriter('./Results/Ablation/' + str(datatag) + '/Log/Log_' + model_name)
 
     model.to(device)
     # model_cm.to(device)
@@ -175,129 +229,124 @@ def trainMNIST(model,
 
     start = timeit.default_timer()
 
-    for epoch in range(num_epochs):
-        av_loss, av_kld, av_dice = train(model, device, trainloader, optimizer, epoch, num_epochs, ramp_up, alpha)
-        v_dice, v_kld, v_loss, v_ged = validate_stochastic(validateloader, model, device, epoch, num_epochs, ramp_up, alpha)
-        
-        print(
-            'Step [{}/{}], '
-            'Train loss: {:.4f}, '
-            'Train kld: {:.4f}, '
-            'Train dice: {:.4f},'
-            '\nValidate loss: {:.4f},'
-            'Validate kld: {:.4f}, '
-            'Validate dice: {:.4f}, '
-            'Validate ged: {:.4f}, '.format(epoch + 1, num_epochs,
-                                                        av_loss,
-                                                        av_kld,
-                                                        av_dice,
-                                                        v_loss[0],
-                                                        v_kld[0],
-                                                        v_dice[0],
-                                                        v_ged[0]))
-        #
-        writer.add_scalars('scalars', {'train loss': av_loss,
-                                        'train kld': av_kld,
-                                        'train dice': av_dice,
-                                        'val loss': v_loss[0],
-                                        'val kld': v_kld[0],
-                                        'val dice': v_dice[0],
-                                        'val ged': v_ged[0]}, epoch + 1)
-            #
-            # # # ================================================================== #
-            # # #                        TensorboardX Logging                        #
-            # # # # ================================================================ #
-
-        # for param_group in optimizer.param_groups:
-        #     param_group['lr'] = learning_rate*((1 - epoch / num_epochs)**0.999)
-        #
-    model.eval()
-    #
-    for i, (v_images, labels_over, labels_under, labels_wrong, labels_good, imagename) in enumerate(testloader):
-        #
-        cm_all_true = []
-        #
-        cm_over_true = calculate_cm(pred=labels_over, true=labels_good)
-        cm_under_true = calculate_cm(pred=labels_under, true=labels_good)
-        cm_wrong_true = calculate_cm(pred=labels_wrong, true=labels_good)
-        #
-        cm_all_true.append(cm_over_true)
-        cm_all_true.append(cm_under_true)
-        cm_all_true.append(cm_wrong_true)
-        #
-        # cm_all_true_result = sum(cm_all_true) / len(cm_all_true)
-        #
-        v_images = v_images.to(device=device, dtype=torch.float32)
-        #
-        v_outputs_logits_original, v_outputs_logits_noisy, _, _ = model(v_images)
-        #
-        seg_shape = v_outputs_logits_original.size()
-        b, c, h, w = seg_shape
-        #
-        # v_outputs_logits_original = nn.Softmax(dim=1)(v_outputs_logits_original)
-        #
-        _, v_outputs_logits = torch.max(v_outputs_logits_original, dim=1)
-        #
-        v_outputs_logits_original = v_outputs_logits_original.reshape(b, c, h*w)
-        v_outputs_logits_original = v_outputs_logits_original.permute(0, 2, 1).contiguous()
-        v_outputs_logits_original = v_outputs_logits_original.view(b * h * w, c).view(b*h*w, c, 1)
-        #
-        sample_list = getSamples(v_outputs_logits_original, model, seg_shape, sample_no=10)
-        #
-        save_name = save_path_visual_result + '/test_' + str(i) + '.png'
-        #
-        images = [v_images[:, 1, :, :].reshape(h, w), labels_good.reshape(h, w).cpu().detach().numpy()] + sample_list
-        plt.imsave(save_name, np.hstack(images), cmap='gray')
-        #
-        if save_probability_map is True:
-            for class_index in range(c):
-                #
-                if c > 0:
-                    v_outputs_logits = v_outputs_logits[:, class_index, :, :]
-                    save_name = save_path_visual_result + '/test_' + str(i) + '_class_' + str(class_index) + '_seg_probability.png'
-                    plt.imsave(save_name, v_outputs_logits.reshape(h, w).cpu().detach().numpy(), cmap='gray')
-        #
-        cm_mse = 0
-        #
-        for j, cm in enumerate(v_outputs_logits_noisy):
-            #
-            cm = cm.view(b, c**2, h*w).permute(0, 2, 1).contiguous().view(b*h*w, c*c).view(b*h*w, c, c)
-            cm = cm / cm.sum(1, keepdim=True)
-            #
-            if j < len(cm_all_true):
-                #
-                cm_pred_ = cm.sum(0) / (b*h*w)
-                #
-                # print(np.shape(cm_pred_))
-                #
-                cm_pred_ = cm_pred_.cpu().detach().numpy()
-                #
-                # print(np.shape(cm_pred_))
-                #
-                cm_true_ = cm_all_true[j]
-                #
-                # print(np.shape(cm_true_))
-                #
-                cm_mse_each_label = cm_pred_ - cm_true_
-                #
-                cm_mse_each_label = cm_mse_each_label**2
-                # cm_mse_each_label = (cm.cpu().detach().numpy - cm_all_true[j])**2
-                cm_mse += cm_mse_each_label.mean()
-                #
-                # print(cm_mse)
-            #
-            # v_noisy_output_original = torch.bmm(cm, v_outputs_logits_original).view(b*h*w, c)
-            # v_noisy_output_original = v_noisy_output_original.view(b, h*w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
-            # _, v_noisy_output = torch.max(v_noisy_output_original, dim=1)
-            # print('noisy ' + str(nnn) + ' of test ' + str(i))
-            # print(torch.sum(cm, dim=0) / (b * h * w))
-            save_name = save_path_visual_result + '/test_' + imagename[0] + '_' + str(i) + '_noisy_' + str(j) + '_seg.png'
-            #
-            save_cm_name = save_path_visual_result + '/' + imagename[0] + '_cm.npy'
-            np.save(save_cm_name, cm.cpu().detach().numpy())
-            #
-            # plt.imsave(save_name, v_noisy_output.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+    if datatag == 'mnist':
+        for epoch in range(num_epochs):
+            av_loss, av_kld, av_dice = train(model, device, trainloader, optimizer, epoch, num_epochs, ramp_up, alpha)
+            v_dice, v_kld, v_loss, v_ged = validate_stochastic(validateloader, model, device, epoch, num_epochs, ramp_up, alpha, save_cm_path=saved_cm_path)
             
+            print(
+                'Step [{}/{}], '
+                'Train loss: {:.4f}, '
+                'Train kld: {:.4f}, '
+                'Train dice: {:.4f},'
+                '\nValidate loss: {:.4f},'
+                'Validate kld: {:.4f}, '
+                'Validate dice: {:.4f}, '
+                'Validate ged: {:.4f}, '.format(epoch + 1, num_epochs,
+                                                            av_loss,
+                                                            av_kld,
+                                                            av_dice,
+                                                            v_loss[0],
+                                                            v_kld[0],
+                                                            v_dice[0],
+                                                            v_ged[0]))
+            #
+            writer.add_scalars('scalars', {'train loss': av_loss,
+                                            'train kld': av_kld,
+                                            'train dice': av_dice,
+                                            'val loss': v_loss[0],
+                                            'val kld': v_kld[0],
+                                            'val dice': v_dice[0],
+                                            'val ged': v_ged[0]}, epoch + 1)
+                #
+                # # # ================================================================== #
+                # # #                        TensorboardX Logging                        #
+                # # # # ================================================================ #
+        t_dice, t_kld, t_loss, t_ged = test_stochastic(testloader, model, device, epoch, num_epochs, ramp_up, alpha, save_path=save_path_visual_result)
+    elif datatag == 'lidc':
+        for epoch in range(num_epochs):
+            av_loss, av_kld, av_dice = train_lidc(model, device, trainloader, optimizer, epoch, num_epochs, ramp_up, alpha)
+            v_dice, v_kld, v_loss, v_ged = validate_stochastic_lidc(validateloader, model, device, epoch, num_epochs, ramp_up, alpha, save_cm_path=saved_cm_path)
+            
+            print(
+                'Step [{}/{}], '
+                'Train loss: {:.4f}, '
+                'Train kld: {:.4f}, '
+                'Train dice: {:.4f},'
+                '\nValidate loss: {:.4f},'
+                'Validate kld: {:.4f}, '
+                'Validate dice: {:.4f}, '
+                'Validate ged: {:.4f}, '.format(epoch + 1, num_epochs,
+                                                            av_loss,
+                                                            av_kld,
+                                                            av_dice,
+                                                            v_loss[0],
+                                                            v_kld[0],
+                                                            v_dice[0],
+                                                            v_ged[0]))
+            #
+            writer.add_scalars('scalars', {'train loss': av_loss,
+                                            'train kld': av_kld,
+                                            'train dice': av_dice,
+                                            'val loss': v_loss[0],
+                                            'val kld': v_kld[0],
+                                            'val dice': v_dice[0],
+                                            'val ged': v_ged[0]}, epoch + 1)
+                #
+                # # # ================================================================== #
+                # # #                        TensorboardX Logging                        #
+                # # # # ================================================================ #
+        t_dice, t_kld, t_loss, t_ged = test_stochastic_lidc(testloader, model, device, epoch, num_epochs, ramp_up, alpha, save_path=save_path_subtlety, meta_df=meta_df)
+
+        # if save_probability_map is True:
+        #     for class_index in range(c):
+        #         #
+        #         if c > 0:
+        #             v_outputs_logits = v_outputs_logits[:, class_index, :, :]
+        #             save_name = save_path_visual_result + '/test_' + str(i) + '_class_' + str(class_index) + '_seg_probability.png'
+        #             plt.imsave(save_name, v_outputs_logits.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+        #     #
+        # cm_mse = 0
+        # #
+        # for j, cm in enumerate(v_outputs_logits_noisy):
+        #     #
+        #     cm = cm.view(b, c**2, h*w).permute(0, 2, 1).contiguous().view(b*h*w, c*c).view(b*h*w, c, c)
+        #     cm = cm / cm.sum(1, keepdim=True)
+        #     #
+        #     if j < len(cm_all_true):
+        #         #
+        #         cm_pred_ = cm.sum(0) / (b*h*w)
+        #         #
+        #         # print(np.shape(cm_pred_))
+        #         #
+        #         cm_pred_ = cm_pred_.cpu().detach().numpy()
+        #         #
+        #         # print(np.shape(cm_pred_))
+        #         #
+        #         cm_true_ = cm_all_true[j]
+        #         #
+        #         # print(np.shape(cm_true_))
+        #         #
+        #         cm_mse_each_label = cm_pred_ - cm_true_
+        #         #
+        #         cm_mse_each_label = cm_mse_each_label**2
+        #         # cm_mse_each_label = (cm.cpu().detach().numpy - cm_all_true[j])**2
+        #         cm_mse += cm_mse_each_label.mean()
+        #         #
+        #         # print(cm_mse)
+        #     #
+        #     # v_noisy_output_original = torch.bmm(cm, v_outputs_logits_original).view(b*h*w, c)
+        #     # v_noisy_output_original = v_noisy_output_original.view(b, h*w, c).permute(0, 2, 1).contiguous().view(b, c, h, w)
+        #     # _, v_noisy_output = torch.max(v_noisy_output_original, dim=1)
+        #     # print('noisy ' + str(nnn) + ' of test ' + str(i))
+        #     # print(torch.sum(cm, dim=0) / (b * h * w))
+        #     save_name = save_path_visual_result + '/test_' + imagename[0] + '_' + str(i) + '_noisy_' + str(j) + '_seg.png'
+        #     #
+        #     save_cm_name = save_path_visual_result + '/' + imagename[0] + '_cm.npy'
+        #     np.save(save_cm_name, cm.cpu().detach().numpy())
+        #     #
+        #     # plt.imsave(save_name, v_noisy_output.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+
     # save model
     stop = timeit.default_timer()
     #
@@ -309,12 +358,7 @@ def trainMNIST(model,
     #
     torch.save(model, path_model)
     #
-    # save_model_name_full = saved_model_path + '/' + save_model_name + '_Final_cm.pt'
-    #
-    # path_model = save_model_name_full
-    #
-    # torch.save(model_cm, path_model)
-    result_dictionary = {'Test Dice': str(v_dice[0]) + '±' + str(v_dice[1]), 'Test CM MSE': str(cm_mse / (i + 1)), 'GED': str(v_ged[0]) + '±' + str(v_ged[1])}
+    result_dictionary = {'Test Dice': str(t_dice[0]) + '±' + str(t_dice[1]), 'GED': str(t_ged[0]) + '±' + str(t_ged[1])}
     ff_path = saved_information_path + '/test_result_data.txt'
     ff = open(ff_path, 'w')
     ff.write(str(result_dictionary))
@@ -345,9 +389,9 @@ def train(model, device, train_loader, optimizer, epoch, num_epochs, ramp_up, al
 
         labels_all = []
         labels_all.append(labels_over)
-        labels_all.append(labels_under)
-        labels_all.append(labels_wrong)
-        labels_all.append(labels_good)
+        # labels_all.append(labels_under)
+        # labels_all.append(labels_wrong)
+        # labels_all.append(labels_good)
 
         # model has two outputs:
         # first one is the probability map for true ground truth
@@ -387,6 +431,63 @@ def train(model, device, train_loader, optimizer, epoch, num_epochs, ramp_up, al
 
     return av_loss, av_kld, av_dice
 
+def train_lidc(model, device, train_loader, optimizer, epoch, num_epochs, ramp_up, alpha):
+    model.train()
+
+    running_loss = 0
+    running_kld_loss = 0
+    running_iou = 0
+    num_batches = len(train_loader)
+
+
+    for j, (images, true_image, annots, imagename) in enumerate(train_loader):
+        # b, c, h, w = images.size()
+
+        # zero graidents before each iteration
+        optimizer.zero_grad()
+
+        # cast numpy data into tensor float
+        images = images.to(device=device, dtype=torch.float32)
+        true_image = true_image.to(device=device, dtype=torch.float32)
+        annots = annots.to(device=device, dtype=torch.float32)
+
+        # model has two outputs:
+        # first one is the probability map for true ground truth
+        # second one is a list collection of probability maps for different noisy ground truths
+        outputs_logits, sampled_cm, mean, logvar = model(images)
+        # outputs = 0.9*outputs + 0.1*outputs_logits
+
+        # calculate loss:
+        seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits, sampled_cm, mean, logvar, annots, epoch, num_epochs, data='lidc', ramp_up=ramp_up, alpha=alpha)
+        # calculate the gradients:
+        loss = seg_loss + kldloss
+        loss.backward()
+        # update weights in model:
+        optimizer.step()
+
+        train_output = calcPred(outputs_logits, sampled_cm)
+
+        train_iou = seg_score(true_image.cpu().detach().numpy(), train_output.cpu().detach().numpy())
+        running_loss += seg_loss
+        running_kld_loss += kldloss
+        running_iou += train_iou
+
+        # if (j + 1) == 1:
+        #     print(
+        #         'Step [{}/{}], '
+        #         'Train loss: {:.4f}, '
+        #         'Train kld: {:.4f},'
+        #         'Train dice: {:.4f},'.format(epoch + 1, num_epochs,
+        #                                                     running_loss / (j + 1),
+        #                                                     running_kld_loss / (j + 1),
+        #                                                     running_iou / (j + 1)))
+    av_loss = running_loss / num_batches
+    av_kld = running_kld_loss / num_batches
+    av_dice = running_iou / num_batches
+
+    return av_loss, av_kld, av_dice
+
+
 def calcPred(pred_seg_logits, cm):
     # Now outputs_logits is the noisy seg:
     b_, c_, h_, w_ = pred_seg_logits.size()
@@ -406,42 +507,95 @@ def calcPred(pred_seg_logits, cm):
 
     return train_output
 
-def cm_mse_fn(labels, label_good, cm_index, shape):
-    b, c, h, w = shape
-    cm_all_true = [calculate_cm(pred=label, true=label_good) for label in labels]
-    cm = cm.view(b, c**2, h*w).permute(0, 2, 1).contiguous().view(b*h*w, c*c).view(b*h*w, c, c)
-    cm = cm / cm.sum(1, keepdim=True)
-    #
-    if cm_index < len(cm_all_true):
-        #
-        cm_pred_ = cm.sum(0) / (b*h*w)
-        #
-        # print(np.shape(cm_pred_))
-        #
-        cm_pred_ = cm_pred_.cpu().detach().numpy()
-        #
-        # print(np.shape(cm_pred_))
-        #
-        cm_true_ = cm_all_true[cm_index]
-        #
-        # print(np.shape(cm_true_))
-        #
-        cm_mse_each_label = cm_pred_ - cm_true_
-        #
-        cm_mse_each_label = cm_mse_each_label**2
-        # cm_mse_each_label = (cm.cpu().detach().numpy - cm_all_true[j])**2
+# def cm_mse_fn(labels, label_good, cm_index, shape):
+#     b, c, h, w = shape
+#     cm_all_true = [calculate_cm(pred=label, true=label_good) for label in labels]
+#     cm = cm.view(b, c**2, h*w).permute(0, 2, 1).contiguous().view(b*h*w, c*c).view(b*h*w, c, c)
+#     cm = cm / cm.sum(1, keepdim=True)
+#     #
+#     if cm_index < len(cm_all_true):
+#         #
+#         cm_pred_ = cm.sum(0) / (b*h*w)
+#         #
+#         # print(np.shape(cm_pred_))
+#         #
+#         cm_pred_ = cm_pred_.cpu().detach().numpy()
+#         #
+#         # print(np.shape(cm_pred_))
+#         #
+#         cm_true_ = cm_all_true[cm_index]
+#         #
+#         # print(np.shape(cm_true_))
+#         #
+#         cm_mse_each_label = cm_pred_ - cm_true_
+#         #
+#         cm_mse_each_label = cm_mse_each_label**2
+#         # cm_mse_each_label = (cm.cpu().detach().numpy - cm_all_true[j])**2
 
-    return cm_mse_each_label.mean()
+#     return cm_mse_each_label.mean()
 
 
-def validate_stochastic(data_loader, model, device, epoch, num_epochs, ramp_up, alpha):
+def validate_stochastic_lidc(data_loader, model, device, epoch, num_epochs, ramp_up, alpha, save_cm_path):
     model.eval()
+    
+    dice_list = []
+    kld_list = []
+    seg_loss_list = []
+    ged_list = []
+    with torch.no_grad():
+        for j, (images, true_image, annots, imagename) in enumerate(data_loader):
+            # cast numpy data into tensor float
+            images = images.to(device=device, dtype=torch.float32)
+            true_image = true_image.to(device=device, dtype=torch.float32)
+            annots = annots.to(device=device, dtype=torch.float32)
 
-    running_dice = 0
-    running_kld_loss = 0
-    running_seg_loss = 0
-    # running_ged = 0
-    num_batches = len(data_loader)
+            # model has two outputs:
+            # first one is the probability map for true ground truth
+            # second one is a list collection of probability maps for different noisy ground truths
+            outputs_logits_original, sampled_cm, mean, logvar = model(images)
+            # outputs = 0.9*outputs + 0.1*outputs_logits
+            shape = outputs_logits_original.size()
+            b, c, h ,w = shape
+            # calculate loss:
+            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits_original, sampled_cm, mean, logvar, annots, epoch, num_epochs, data='lidc', ramp_up=ramp_up, alpha=alpha)
+
+            output = calcPred(outputs_logits_original, sampled_cm)
+
+            dice = seg_score(true_image.numpy(), output.numpy())
+            noisy_labels = [annots[:,:,:,:,annot_idx].reshape(h, w).numpy() for annot_idx in range(annots.shape[4])]
+
+            outputs_logits_original = outputs_logits_original.reshape(b, c, h*w)
+            outputs_logits_original = outputs_logits_original.permute(0, 2, 1).contiguous()
+            outputs_logits_original = outputs_logits_original.view(b * h * w, c).view(b*h*w, c, 1)
+
+            noisy_segs = getSamples(outputs_logits_original, model, shape, sample_no=len(noisy_labels))
+
+            if len(noisy_labels) > 1:
+                ged = generalized_energy_distance(noisy_labels, noisy_segs, class_no=2)
+
+            seg_loss_list.append(seg_loss)
+            kld_list.append(kldloss)
+            dice_list.append(dice)
+            ged_list.append(ged)
+
+            if epoch % 10 == 0:
+                # reshape cm: [ b , c , c , h , w]= > [ b∗h∗w, c , c ]
+                boo = sampled_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
+                # boo = torch.softmax(boo, dim=1)
+                
+                save_path = save_cm_path + '/cm_' + str(epoch) + '.npy'
+                np.save(save_path, boo.numpy())
+
+    
+    dice_met = eval_metric(dice_list)
+    seg_loss_met = eval_metric(seg_loss_list)
+    kld_met = eval_metric(kld_list)
+    ged_met = eval_metric(ged_list)
+
+    return dice_met, kld_met, seg_loss_met, ged_met
+
+def validate_stochastic(data_loader, model, device, epoch, num_epochs, ramp_up, alpha, save_cm_path):
+    model.eval()
     
     dice_list = []
     kld_list = []
@@ -459,9 +613,9 @@ def validate_stochastic(data_loader, model, device, epoch, num_epochs, ramp_up, 
 
             labels_all = []
             labels_all.append(labels_over)
-            labels_all.append(labels_under)
-            labels_all.append(labels_wrong)
-            labels_all.append(labels_good)
+            # labels_all.append(labels_under)
+            # labels_all.append(labels_wrong)
+            # labels_all.append(labels_good)
 
             # model has two outputs:
             # first one is the probability map for true ground truth
@@ -490,6 +644,15 @@ def validate_stochastic(data_loader, model, device, epoch, num_epochs, ramp_up, 
             kld_list.append(kldloss)
             dice_list.append(dice)
             ged_list.append(ged)
+
+            if epoch % 10 == 0:
+                # reshape cm: [ b , c , c , h , w]= > [ b∗h∗w, c , c ]
+                boo = sampled_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
+                # boo = torch.softmax(boo, dim=1)
+                
+                save_path = save_cm_path + '/cm_' + str(epoch) + '.npy'
+                np.save(save_path, boo.numpy())
+
     
     dice_met = eval_metric(dice_list)
     seg_loss_met = eval_metric(seg_loss_list)
@@ -498,14 +661,14 @@ def validate_stochastic(data_loader, model, device, epoch, num_epochs, ramp_up, 
 
     return dice_met, kld_met, seg_loss_met, ged_met
 
-def test(data_loader, model, device, epoch, num_epochs, ramp_up, alpha):
+
+def test_stochastic(data_loader, model, device, epoch, num_epochs, ramp_up, alpha, save_path, sample_no=5):
     model.eval()
 
     dice_list = []
-    running_kld_loss = 0
-    running_seg_loss = 0
-    num_batches = len(data_loader)
-    
+    kld_list = []
+    seg_loss_list = []
+    ged_list = []
     with torch.no_grad():
         for j, (images, labels_over, labels_under, labels_wrong, labels_good, imagename) in enumerate(data_loader):
 
@@ -518,32 +681,114 @@ def test(data_loader, model, device, epoch, num_epochs, ramp_up, alpha):
 
             labels_all = []
             labels_all.append(labels_over)
-            labels_all.append(labels_under)
-            labels_all.append(labels_wrong)
-            labels_all.append(labels_good)
+            # labels_all.append(labels_under)
+            # labels_all.append(labels_wrong)
+            # labels_all.append(labels_good)
 
             # model has two outputs:
             # first one is the probability map for true ground truth
             # second one is a list collection of probability maps for different noisy ground truths
-            outputs_logits, sampled_cm, mean, logvar = model(images)
+            outputs_logits_original, sampled_cm, mean, logvar = model(images)
             # outputs = 0.9*outputs + 0.1*outputs_logits
-            
+            shape = outputs_logits_original.size()
+            b, c, h ,w = shape
             # calculate loss:
-            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits.detach(), sampled_cm.detatch(), mean.detatch(), logvar.detatch(), labels_all, epoch, num_epochs, data='mnist', ramp_up=ramp_up, alpha=alpha)
+            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits_original, sampled_cm, mean, logvar, labels_all, epoch, num_epochs, data='mnist', ramp_up=ramp_up, alpha=alpha)
 
-            train_output = calcPred(outputs_logits, sampled_cm)
-            dice = seg_score(labels_good.detach().numpy(), train_output.detach().numpy())
+            output = calcPred(outputs_logits_original, sampled_cm)
+
+            dice = seg_score(labels_good.numpy(), output.numpy())
+            noisy_labels = [labels_over.reshape(h, w).numpy(), labels_under.reshape(h, w).numpy(), labels_wrong.reshape(h, w).numpy()]
+
+            outputs_logits_original = outputs_logits_original.reshape(b, c, h*w)
+            outputs_logits_original = outputs_logits_original.permute(0, 2, 1).contiguous()
+            outputs_logits_original = outputs_logits_original.view(b * h * w, c).view(b*h*w, c, 1)
+
+            noisy_segs = getSamples(outputs_logits_original, model, shape, sample_no=sample_no)
             
-            running_seg_loss += seg_loss
-            running_kld_loss += kldloss
+            ged_noisy_segs = noisy_segs[:len(noisy_labels)]
+            ged = generalized_energy_distance(noisy_labels, ged_noisy_segs, class_no=2)
+
+            seg_loss_list.append(seg_loss)
+            kld_list.append(kldloss)
             dice_list.append(dice)
+            ged_list.append(ged)
 
-    
-    dice_mean, dice_std = eval_metric(dice_list)
-    av_kld = running_kld_loss / num_batches
-    av_seg_loss = running_seg_loss / num_batches
+            # list of images to save
+            images_save = [images[:, 1, :, :].reshape(h, w), labels_good.reshape(h, w).cpu().detach().numpy()] + noisy_segs
+            save_name = save_path + '/test_' + str(j) + '.png'
+            #
+            plt.imsave(save_name, np.hstack(images_save), cmap='gray')
 
-    return (dice_mean, dice_std), av_kld, av_seg_loss
+
+    dice_met = eval_metric(dice_list)
+    seg_loss_met = eval_metric(seg_loss_list)
+    kld_met = eval_metric(kld_list)
+    ged_met = eval_metric(ged_list)
+
+    return dice_met, kld_met, seg_loss_met, ged_met
+
+
+def test_stochastic_lidc(data_loader, model, device, epoch, num_epochs, ramp_up, alpha, save_path, meta_df, sample_no=5):
+    model.eval()
+
+    dice_list = []
+    kld_list = []
+    seg_loss_list = []
+    ged_list = []
+    with torch.no_grad():
+        for j, (images, true_image, annots, imagename) in enumerate(data_loader):
+            # cast numpy data into tensor float
+            images = images.to(device=device, dtype=torch.float32)
+            true_image = true_image.to(device=device, dtype=torch.float32)
+            annots = annots.to(device=device, dtype=torch.float32)
+
+            # model has two outputs:
+            # first one is the probability map for true ground truth
+            # second one is a list collection of probability maps for different noisy ground truths
+            outputs_logits_original, sampled_cm, mean, logvar = model(images)
+            # outputs = 0.9*outputs + 0.1*outputs_logits
+            shape = outputs_logits_original.size()
+            b, c, h ,w = shape
+            # calculate loss:
+            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits_original, sampled_cm, mean, logvar, annots, epoch, num_epochs, data='lidc', ramp_up=ramp_up, alpha=alpha)
+
+            output = calcPred(outputs_logits_original, sampled_cm)
+
+            dice = seg_score(true_image.numpy(), output.numpy())
+            noisy_labels = [annots[:,:,:,:,annot_idx].reshape(h, w).numpy() for annot_idx in range(annots.shape[4])]
+
+            outputs_logits_original = outputs_logits_original.reshape(b, c, h*w)
+            outputs_logits_original = outputs_logits_original.permute(0, 2, 1).contiguous()
+            outputs_logits_original = outputs_logits_original.view(b * h * w, c).view(b*h*w, c, 1)
+
+            noisy_segs = getSamples(outputs_logits_original, model, shape, sample_no=len(noisy_labels))
+            
+            if len(noisy_labels) > 1:
+                ged = generalized_energy_distance(noisy_labels, noisy_segs, class_no=2)
+
+            seg_loss_list.append(seg_loss)
+            kld_list.append(kldloss)
+            dice_list.append(dice)
+            ged_list.append(ged)
+
+
+            _, patient_id, _, nod_no, _, _ = imagename[0].split('_')
+            subtlety = meta_df.loc[(meta_df['patient_id'] == int(patient_id)) & (meta_df['nodule_no'] == int(nod_no))]['subtlety'].item()
+
+            # list of images to save
+            images_save = [images.reshape(h, w), true_image.reshape(h, w).cpu().detach().numpy()] + noisy_segs
+            save_name = save_path + str(subtlety) + '/test_' + str(j) + '.png'
+            #
+            plt.imsave(save_name, np.hstack(images_save), cmap='gray')
+
+
+    dice_met = eval_metric(dice_list)
+    seg_loss_met = eval_metric(seg_loss_list)
+    kld_met = eval_metric(kld_list)
+    ged_met = eval_metric(ged_list)
+
+    return dice_met, kld_met, seg_loss_met, ged_met
 
 
 def getSamples(output_logits_original, model, shape, sample_no=5):
@@ -556,7 +801,7 @@ def getSamples(output_logits_original, model, shape, sample_no=5):
 
         anti_corrpution_cm = sample_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
         # anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
-        anti_corrpution_cm = anti_corrpution_cm / anti_corrpution_cm.sum(1, keepdim=True)
+        anti_corrpution_cm = torch.softmax(anti_corrpution_cm, dim=1)
 
         # pred_norm_prob_noisy = pred_norm_prob_noisy.view(b, c, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c, 1)
         outputs_clean = torch.bmm(anti_corrpution_cm, output_logits_original).view(b * h * w, c)
