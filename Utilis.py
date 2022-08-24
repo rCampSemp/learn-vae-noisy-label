@@ -11,7 +11,7 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 from torch.utils import data
 
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, jaccard_score
 # =============================================
 
 
@@ -1592,6 +1592,21 @@ def seg_score(target, inputs):
     dice = dice.sum()/num
     return dice
 
+# def generalized_energy_distance(all_gts, all_segs, class_no):
+#     '''
+#     :param all_gts: a list of all noisy labels
+#     :param all_segs: a list of all noisy segmentation
+#     :param class_no: class number
+#     :return:
+#     '''
+#     # This is slightly different from the original paper:
+#     # We didn't take the distance to the power of 2
+#     #
+#     gt_gt_dist = [segmentation_scores(gt_1, gt_2, class_no) for i1, gt_1 in enumerate(all_gts) for i2, gt_2 in enumerate(all_gts) if i1 != i2]
+#     seg_seg_dist = [segmentation_scores(seg_1, seg_2, class_no) for i1, seg_1 in enumerate(all_segs) for i2, seg_2 in enumerate(all_segs) if i1 != i2]
+#     seg_gt_list = [segmentation_scores(seg_, gt_, class_no) for i, seg_ in enumerate(all_segs) for j, gt_ in enumerate(all_gts)]
+#     ged_metric = sum(gt_gt_dist) / len(gt_gt_dist) + sum(seg_seg_dist) / len(seg_seg_dist) + 2 * sum(seg_gt_list) / len(seg_gt_list)
+#     return ged_metric
 def generalized_energy_distance(all_gts, all_segs, class_no):
     '''
     :param all_gts: a list of all noisy labels
@@ -1602,9 +1617,9 @@ def generalized_energy_distance(all_gts, all_segs, class_no):
     # This is slightly different from the original paper:
     # We didn't take the distance to the power of 2
     #
-    gt_gt_dist = [segmentation_scores(gt_1, gt_2, class_no) for i1, gt_1 in enumerate(all_gts) for i2, gt_2 in enumerate(all_gts) if i1 != i2]
-    seg_seg_dist = [segmentation_scores(seg_1, seg_2, class_no) for i1, seg_1 in enumerate(all_segs) for i2, seg_2 in enumerate(all_segs) if i1 != i2]
-    seg_gt_list = [segmentation_scores(seg_, gt_, class_no) for i, seg_ in enumerate(all_segs) for j, gt_ in enumerate(all_gts)]
+    gt_gt_dist = [1-jaccard_score(gt_1, gt_2, average="micro") for i1, gt_1 in enumerate(all_gts) for i2, gt_2 in enumerate(all_gts) if i1 != i2]
+    seg_seg_dist = [1-jaccard_score(seg_1, seg_2, average="micro") for i1, seg_1 in enumerate(all_segs) for i2, seg_2 in enumerate(all_segs) if i1 != i2]
+    seg_gt_list = [1-jaccard_score(seg_, gt_, average="micro") for i, seg_ in enumerate(all_segs) for j, gt_ in enumerate(all_gts)]
     ged_metric = sum(gt_gt_dist) / len(gt_gt_dist) + sum(seg_seg_dist) / len(seg_seg_dist) + 2 * sum(seg_gt_list) / len(seg_gt_list)
     return ged_metric
 
@@ -1838,44 +1853,3 @@ def evaluate_noisy_label_6(data, model1, class_no):
     # print(test_dice / (i + 1))
     #
     return test_dice / (i + 1), v_ged
-
-def validate_LIDC(data_loader, model1, device):
-    """
-
-    Args:
-        data:
-        model1:
-        class_no:
-
-    Returns:
-
-    """
-    model1.eval()
-    # model2.eval()
-    #
-    test_dice = 0
-    test_dice_all = []
-    num_batches = len(data_loader)
-    #
-    for i, (v_images, v_true_image, v_annots, v_imagename) in enumerate(data_loader):
-        #
-        v_images = v_images.to(device=device, dtype=torch.float32)
-        v_outputs_logits, cms = model1(v_images)
-        b, c, h, w = v_outputs_logits.size()
-        v_outputs_logits = nn.Softmax(dim=1)(v_outputs_logits)
-        # cms = model2(v_images)
-        #
-        _, v_output = torch.max(v_outputs_logits, dim=1)
-        #
-        v_dice_ = seg_score(v_true_image, v_output.cpu().detach().numpy())
-        #
-        # epoch_noisy_labels = [v_true_image.cpu().detach().numpy(), v_labels_under.cpu().detach().numpy(), v_labels_wrong.cpu().detach().numpy(), v_labels_true.cpu().detach().numpy(), v_labels_good.cpu().detach().numpy()]
-        # v_ged = generalized_energy_distance(epoch_noisy_labels, v_outputs_noisy, class_no)
-        test_dice += v_dice_
-        test_dice_all.append(test_dice)
-        #
-    # print(i)
-    # print(test_dice)
-    # print(test_dice / (i + 1))
-    #
-    return test_dice / num_batches

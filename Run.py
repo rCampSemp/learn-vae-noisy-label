@@ -4,7 +4,7 @@ import torch
 # from Train_unet import trainUnet
 # from Train_ours import trainModels
 # from Train_GCM import trainGCMModels
-# from Train_punet import train_punet
+from Train_punet import train_punet
 # from Train_LIDC import trainModels
 from Train_VAE import trainStoch
 # torch.manual_seed(0)
@@ -83,7 +83,7 @@ if __name__ == '__main__':
     # ============================================
     # for probabilistic u-net
     # ============================================
-    # train_punet(epochs=80,
+    # train_punet(epochs=1,
     #             iteration=3,
     #             train_batch_size=20,
     #             lr=1e-4,
@@ -94,24 +94,42 @@ if __name__ == '__main__':
     #             num_classes=2,
     #             beta=5,
     #             test_samples_no=10,
-    #             dataset_path='Path',
+    #             dataset_path='./MNIST_examples',
     #             dataset_tag='mnist')
     # ==========================================
-    # for training with our model with VAE CM
+    # for training with our model with VAE CM with MNIST
     # ==========================================
     trainStoch(input_dim=3,
                 class_no=2,
-                repeat=3,
+                repeat=1,
                 train_batchsize=5,
                 validate_batchsize=1,
-                num_epochs=30,
+                num_epochs=80,
                 learning_rate=1e-3,
                 width=24,
                 depth=3,
+                resolution=28,
                 data_path='./MNIST_examples',
                 dataset_tag='mnist',
                 label_mode='multi',
-                ramp_up=0.2,
-                alpha=1.0,
+                ramp_up=0.3,
+                alpha=20.0,
                 save_probability_map=False)
-
+    # ==========================================
+    # for training with our model with VAE CM with LIDC
+    # ==========================================
+    # trainStoch(input_dim=1,
+    #             class_no=2,
+    #             repeat=1,
+    #             train_batchsize=5,
+    #             validate_batchsize=1,
+    #             num_epochs=1,
+    #             learning_rate=1e-4,
+    #             width=24,
+    #             depth=3,
+    #             resolution=64,
+    #             data_path='./LIDC_examples',
+    #             dataset_tag='lidc',
+    #             ramp_up=0.3,
+    #             alpha=20.0,
+    #             save_probability_map=False)
