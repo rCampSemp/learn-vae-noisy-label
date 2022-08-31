@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 from torch.utils import data
 
 from sklearn.metrics import confusion_matrix, jaccard_score
+
+# from Train_VAE import eval_metric
 # =============================================
 
 
@@ -878,6 +880,11 @@ class CustomDataset_punet(torch.utils.data.Dataset):
 
         elif noisylabel == 'p_unet':
             if dataset_tag == 'mnist':
+                self.label_over_folder = dataset_location + '/Over'
+                self.label_under_folder = dataset_location + '/Under'
+                self.label_wrong_folder = dataset_location + '/Wrong'
+                self.label_good_folder = dataset_location + '/GT'
+
                 self.label_folder = dataset_location + '/All'
                 self.image_folder = dataset_location + '/Gaussian'
 
@@ -1191,9 +1198,23 @@ class CustomDataset_punet(torch.utils.data.Dataset):
             return image, label, true_label, imagename
 
         elif self.label_mode == 'p_unet':
-
-            all_labels = glob.glob(os.path.join(self.label_folder, '*.tif'))
-            all_labels.sort()
+            if self.dataset_tag == 'mnist':
+                labeltype = np.random.randint(3)
+                if labeltype == 0:
+                    all_labels = glob.glob(os.path.join(self.label_over_folder, '*.tif'))
+                    all_labels.sort()
+                elif labeltype == 1:
+                    all_labels = glob.glob(os.path.join(self.label_under_folder, '*.tif'))
+                    all_labels.sort()
+                elif labeltype == 2:
+                    all_labels = glob.glob(os.path.join(self.label_wrong_folder, '*.tif'))
+                    all_labels.sort()
+                elif labeltype == 3:
+                    all_labels = glob.glob(os.path.join(self.label_good_folder, '*.tif'))
+                    all_labels.sort()
+            #
+            # all_labels = glob.glob(os.path.join(self.label_folder, '*.tif'))
+            # all_labels.sort()
             all_images = glob.glob(os.path.join(self.image_folder, '*.tif'))
             all_images.sort()
             #
@@ -1256,12 +1277,12 @@ class CustomDataset_punet(torch.utils.data.Dataset):
 
 
 class CustomDataset_LIDC(torch.utils.data.Dataset):
-    def __init__(self, dataset_location, augmentation=False):
+    def __init__(self, dataset_location, model='ours', augmentation=False):
         self.annot_path = dataset_location + '/masks/annots'
         self.truth_path = dataset_location + '/masks/GT'
         self.scan_path = dataset_location + '/scans'
         self.data_aug = augmentation
-        #
+        self.modeltype = model
     def __getitem__(self, index):
         all_true_images = glob.glob(os.path.join(self.truth_path, '*.tif'))
         all_true_images.sort()
@@ -1272,14 +1293,14 @@ class CustomDataset_LIDC(torch.utils.data.Dataset):
         all_annot_images = glob.glob(os.path.join(self.annot_path, '*.tif'))
         all_annot_images.sort()
         #
+        annot_image = tiff.imread(all_annot_images[index])
+        annot_image = np.array(annot_image, dtype='float32')
+        #
         true_image = tiff.imread(all_true_images[index])
         true_image = np.array(true_image, dtype='float32')
         #
         image = tiff.imread(all_images[index])
         image = np.array(image, dtype='float32')
-        #
-        annot_image = tiff.imread(all_annot_images[index])
-        annot_image = np.array(annot_image, dtype='float32')
         #
         # all 1 x 512 x 512
         # data augmentation 
@@ -1297,13 +1318,18 @@ class CustomDataset_LIDC(torch.utils.data.Dataset):
                 #
                 annot_image = np.flip(annot_image, axis=1).copy()
                 annot_image = np.flip(annot_image, axis=2).copy()
-
+        
         # name of scan and nodule maybe
         imagename = all_images[index]
         path_image, imagename = os.path.split(imagename)
         imagename, imageext = os.path.splitext(imagename)
 
-        return image, true_image, annot_image, imagename
+        if self.modeltype=='ours':
+            return image, true_image, annot_image, imagename
+        elif self.modeltype=='punet':
+            annot = annot_image[:,:,:,np.random.choice(annot_image.shape[3])]
+            return image, annot, imagename
+        
     
     def __len__(self):
         # You should change 0 to the total size of your dataset.
@@ -1413,12 +1439,12 @@ def save_mask_prediction_example(mask, pred, iter):
 	plt.savefig('images/'+str(iter)+"_mask.png")
 
 
-def test_punet(net, testdata, save_path, sampling_times):
+def test_punet(net, testdata, save_path, sampling_times, datatag):
     #
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     net.eval()
-    test_iou = 0
-    test_generalized_energy_distance = 0
+    test_iou = []
+    test_generalized_energy_distance = []
     epoch_noisy_labels = []
     epoch_noisy_segs = []
     # sampling_times = 10
@@ -1440,54 +1466,113 @@ def test_punet(net, testdata, save_path, sampling_times):
             raise
         pass
     #
-    for no_eval, (patch_eval, mask_eval_over, mask_eval_under, mask_eval_wrong, mask_eval_good, mask_name_eval) in enumerate(testdata):
-        #
-        if no_eval < 30:
-            #
-            patch_eval = patch_eval.to(device)
-            mask_eval_over = mask_eval_over.to(device)
-            mask_eval_under = mask_eval_under.to(device)
-            mask_eval_wrong = mask_eval_wrong.to(device)
-            mask_eval_good = mask_eval_good.to(device)
-            #
-            for j in range(sampling_times):
+    with torch.no_grad():
+        if datatag == 'mnist':
+            for no_eval, (patch_eval, mask_eval_over, mask_eval_under, mask_eval_wrong, mask_eval_good, mask_name_eval) in enumerate(testdata):
                 #
-                net.eval()
-                # segm input doesn't matter
-                net.forward(patch_eval, mask_eval_good, training=False)
-                seg_sample = net.sample(testing=True)
-                seg_sample = (torch.sigmoid(seg_sample) > 0.5).float()
-                (b, c, h, w) = seg_sample.shape
-                #
-                if j == 0:
-                    seg_evaluate = seg_sample
-                else:
-                    seg_evaluate += seg_sample
+                if no_eval < 30:
                     #
-                epoch_noisy_segs.append(seg_sample.cpu().detach().numpy())
+                    patch_eval = patch_eval.to(device)
+                    mask_eval_over = mask_eval_over.to(device)
+                    mask_eval_under = mask_eval_under.to(device)
+                    mask_eval_wrong = mask_eval_wrong.to(device)
+                    mask_eval_good = mask_eval_good.to(device)
+                    #
+                    for j in range(sampling_times):
+                        #
+                        net.eval()
+                        # segm input doesn't matter
+                        net.forward(patch_eval, mask_eval_good, training=False)
+                        seg_sample = net.sample(testing=True)
+                        seg_sample = (torch.sigmoid(seg_sample) > 0.5).float()
+                        (b, c, h, w) = seg_sample.shape
+                        #
+                        if j == 0:
+                            seg_evaluate = seg_sample
+                        else:
+                            seg_evaluate += seg_sample
+                            #
+                        epoch_noisy_segs.append(seg_sample.reshape(28,28).cpu().detach().numpy().astype(bool))
+                        #
+                        if no_eval < 10:
+                            #
+                            save_name = save_path + '/test_' + str(no_eval) + '_sample_' + str(j) + '_seg.png'
+                            #
+                            plt.imsave(save_name, seg_sample.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+                    #
+                    seg_evaluate = seg_evaluate / sampling_times
                 #
                 if no_eval < 10:
                     #
-                    save_name = save_path + '/test_' + str(no_eval) + '_sample_' + str(j) + '_seg.png'
+                    gt_save_name = save_path + '/gt_' + str(no_eval) + '.png'
                     #
-                    plt.imsave(save_name, seg_sample.reshape(h, w).cpu().detach().numpy(), cmap='gray')
-            #
-            seg_evaluate = seg_evaluate / sampling_times
-        #
-        if no_eval < 10:
-            #
-            gt_save_name = save_path + '/gt_' + str(no_eval) + '.png'
-            #
-            plt.imsave(gt_save_name, mask_eval_good.reshape(h, w).cpu().detach().numpy(), cmap='gray')
-        #
-        val_iou = segmentation_scores(mask_eval_good.cpu().detach().numpy(), seg_evaluate.cpu().detach().numpy(), 2)
-        test_iou += val_iou
-        epoch_noisy_labels = [mask_eval_good.cpu().detach().numpy(), mask_eval_over.cpu().detach().numpy(), mask_eval_under.cpu().detach().numpy(), mask_eval_wrong.cpu().detach().numpy()]
-        ged = generalized_energy_distance(epoch_noisy_labels, epoch_noisy_segs, 2)
-        test_generalized_energy_distance += ged
-        #
-    test_iou = test_iou / no_eval
-    test_generalized_energy_distance = test_generalized_energy_distance / no_eval
+                    plt.imsave(gt_save_name, mask_eval_good.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+                #
+                # iou = seg_score(mask_eval_good.reshape(28,28).cpu().detach().numpy(), seg_evaluate.cpu().detach().numpy())
+                
+                epoch_noisy_labels = [mask_eval_good.reshape(28,28).cpu().detach().numpy().astype(bool), mask_eval_over.reshape(28,28).cpu().detach().numpy().astype(bool), mask_eval_under.reshape(28,28).cpu().detach().numpy().astype(bool), mask_eval_wrong.reshape(28,28).cpu().detach().numpy().astype(bool)]
+                ged = generalized_energy_distance(epoch_noisy_labels, epoch_noisy_segs, 2)
+
+                jac = jaccard_score(mask_eval_good.reshape(28,28).cpu().detach().numpy().astype(bool), seg_evaluate.reshape(28, 28).cpu().detach().numpy().astype(bool), average="micro") 
+                iou = 2 * jac / (jac + 1)  
+
+                test_iou.append(iou)
+                test_generalized_energy_distance.append(ged)
+                #
+
+        if datatag == 'lidc':
+            for no_eval, (patch_eval, mask_eval_true, mask_eval_annots, mask_name_eval) in enumerate(testdata):
+                if no_eval < 30:
+                    patch_eval = patch_eval.to(device, dtype=torch.float32)
+                    mask_eval_annots = mask_eval_annots.to(device, dtype=torch.float32)
+                    mask_eval_true = mask_eval_true.to(device, dtype=torch.float32)
+                    
+                    sampling_no = mask_eval_annots.shape[4]
+                    epoch_noisy_segs = []
+                    for j in range(sampling_no):
+                        net.eval()
+                        # segm input doesn't matter
+                        net.forward(patch_eval, mask_eval_annots[:,:,:,:,0], training=False)
+                        seg_sample = net.sample(testing=True)
+                        seg_sample = (torch.sigmoid(seg_sample) > 0.5).float()
+                        (b, c, h, w) = seg_sample.shape
+                        #
+                        if j == 0:
+                            #
+                            seg_evaluate = seg_sample
+                            #
+                        else:
+                            #
+                            seg_evaluate += seg_sample
+                            #
+                        epoch_noisy_segs.append(seg_sample.reshape(h,w).cpu().detach().numpy().astype(bool))
+                        #
+                        if no_eval < 10:
+                            #
+                            save_name = save_path + '/test_' + str(no_eval) + '_sample_' + str(j) + '_seg.png'
+                            #
+                            plt.imsave(save_name, seg_sample.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+                        #
+                    if no_eval < 10:
+                        #
+                        gt_save_name = save_path + '/gt_' + str(no_eval) + '.png'
+                        #
+                        plt.imsave(gt_save_name, mask_eval_true.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+
+                    seg_evaluate = seg_evaluate / sampling_no
+                    #
+                    # val_iou = seg_score(mask_eval_true.reshape(h, w).cpu().detach().numpy(), seg_evaluate.reshape(h,w).cpu().detach().numpy())
+                    jac = jaccard_score(mask_eval_true.reshape(h,w).cpu().detach().numpy().astype(bool), seg_evaluate.reshape(h, w).cpu().detach().numpy().astype(bool), average="micro") 
+                    iou = 2 * jac / (jac + 1)  
+                    test_iou.append(iou)
+
+                    if sampling_no > 1:
+                        epoch_noisy_labels = [mask_eval_annots[:,:,:,:,annot_idx].reshape(h, w).numpy() for annot_idx in range(sampling_no)]
+                        ged = generalized_energy_distance(epoch_noisy_labels, epoch_noisy_segs, 2)
+                        test_generalized_energy_distance.append(ged)
+
+    test_iou = eval_metric(test_iou)
+    test_generalized_energy_distance = eval_metric(test_generalized_energy_distance)
     #
     result_dictionary = {'Test IoU': str(test_iou), 'Test GED': str(test_generalized_energy_distance)}
     ff_path = save_path + '/test_result_data.txt'
@@ -1499,48 +1584,95 @@ def test_punet(net, testdata, save_path, sampling_times):
     print('Test generalised energy distance: ' + str(test_generalized_energy_distance))
 
 
-def evaluate_punet(net, val_data, class_no, sampling_no):
+def evaluate_punet(net, val_data, class_no, sampling_no, datatag='mnist'):
     #
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    validate_iou = 0
-    generalized_energy_distance_epoch = 0
+    validate_iou = []
+    generalized_energy_distance_epoch = []
     #
-    for no_eval, (patch_eval, mask_eval_over, mask_eval_under, mask_eval_wrong, mask_eval_true, mask_name_eval) in enumerate(val_data):
-        #
-        patch_eval = patch_eval.to(device)
-        mask_eval_over = mask_eval_over.to(device)
-        mask_eval_under = mask_eval_under.to(device)
-        mask_eval_wrong = mask_eval_wrong.to(device)
-        mask_eval_true = mask_eval_true.to(device)
-        epoch_noisy_segs = []
-        #
-        for j in range(sampling_no):
-            net.eval()
-            # segm input doesn't matter
-            net.forward(patch_eval, mask_eval_wrong, training=False)
-            seg_sample = net.sample(testing=True)
-            seg_sample = (torch.sigmoid(seg_sample) > 0.5).float()
+    if datatag == 'mnist':
+        for no_eval, (patch_eval, mask_eval_over, mask_eval_under, mask_eval_wrong, mask_eval_true, mask_name_eval) in enumerate(val_data):
             #
-            if j == 0:
-                #
-                seg_evaluate = seg_sample
-                #
-            else:
-                #
-                seg_evaluate += seg_sample
-                #
-            epoch_noisy_segs.append(seg_sample.cpu().detach().numpy())
+            patch_eval = patch_eval.to(device)
+            mask_eval_over = mask_eval_over.to(device)
+            mask_eval_under = mask_eval_under.to(device)
+            mask_eval_wrong = mask_eval_wrong.to(device)
+            mask_eval_true = mask_eval_true.to(device)
+            epoch_noisy_segs = []
             #
-        seg_evaluate = seg_evaluate / sampling_no
-        #
-        val_iou = segmentation_scores(mask_eval_true.cpu().detach().numpy(), seg_evaluate.cpu().detach().numpy(), class_no)
-        epoch_noisy_labels = [mask_eval_true.cpu().detach().numpy(), mask_eval_over.cpu().detach().numpy(), mask_eval_under.cpu().detach().numpy(), mask_eval_wrong.cpu().detach().numpy()]
-        # epoch_noisy_segs = [seg_good.cpu().detach().numpy(), seg_over.cpu().detach().numpy(), seg_under.cpu().detach().numpy(), seg_wrong.cpu().detach().numpy()]
-        ged = generalized_energy_distance(epoch_noisy_labels, epoch_noisy_segs, class_no)
-        validate_iou += val_iou
-        generalized_energy_distance_epoch += ged
-        #
-    return validate_iou / (no_eval), generalized_energy_distance_epoch / (no_eval)
+            for j in range(sampling_no):
+                net.eval()
+                # segm input doesn't matter
+                net.forward(patch_eval, mask_eval_wrong, training=False)
+                seg_sample = net.sample(testing=True)
+                seg_sample = (torch.sigmoid(seg_sample) > 0.5).float()
+                #
+                if j == 0:
+                    #
+                    seg_evaluate = seg_sample
+                    #
+                else:
+                    #
+                    seg_evaluate += seg_sample
+                    #
+                epoch_noisy_segs.append(seg_sample.reshape(28,28).cpu().detach().numpy().astype(bool))
+                #
+            seg_evaluate = seg_evaluate / sampling_no
+            #
+            # val_iou = seg_score(mask_eval_true.reshape(28,28).cpu().detach().numpy(), seg_evaluate.cpu().detach().numpy())
+            epoch_noisy_labels = [mask_eval_over.reshape(28,28).cpu().detach().numpy().astype(bool), mask_eval_under.reshape(28,28).cpu().detach().numpy().astype(bool), mask_eval_wrong.reshape(28,28).cpu().detach().numpy().astype(bool)]
+            # epoch_noisy_segs = [seg_good.cpu().detach().numpy(), seg_over.cpu().detach().numpy(), seg_under.cpu().detach().numpy(), seg_wrong.cpu().detach().numpy()]
+            # print(mask_eval_true.reshape(28,28).cpu().detach().numpy().max())
+            ged = generalized_energy_distance(epoch_noisy_labels, epoch_noisy_segs, class_no)
+            # validate_iou += val_iou
+            # generalized_energy_distance_epoch += ged
+            jac = jaccard_score(mask_eval_true.reshape(28,28).cpu().detach().numpy().astype(bool), seg_evaluate.reshape(28, 28).cpu().detach().numpy().astype(bool), average="micro") 
+            val_iou = 2 * jac / (jac + 1)
+
+            validate_iou.append(val_iou)
+            generalized_energy_distance_epoch.append(ged)
+    
+    if datatag == 'lidc':
+        for no_eval, (patch_eval, mask_eval_true, mask_eval_annots, mask_name_eval) in enumerate(val_data):
+            patch_eval = patch_eval.to(device, dtype=torch.float32)
+            mask_eval_annots = mask_eval_annots.to(device, dtype=torch.float32)
+            mask_eval_true = mask_eval_true.to(device, dtype=torch.float32)
+            
+            sampling_no = mask_eval_annots.shape[4]
+            epoch_noisy_segs = []
+            for j in range(sampling_no):
+                net.eval()
+                # segm input doesn't matter
+                net.forward(patch_eval, mask_eval_annots[:,:,:,:,0], training=False)
+                seg_sample = net.sample(testing=True)
+                seg_sample = (torch.sigmoid(seg_sample) > 0.5).float()
+                #
+                if j == 0:
+                    #
+                    seg_evaluate = seg_sample
+                    #
+                else:
+                    #
+                    seg_evaluate += seg_sample
+                    #
+                epoch_noisy_segs.append(seg_sample.reshape(64,64).cpu().detach().numpy().astype(bool))
+                #
+            seg_evaluate = seg_evaluate / sampling_no
+            #
+            # val_iou = seg_score(mask_eval_true.reshape(64,64).cpu().detach().numpy(), seg_sample.reshape(64,64).cpu().detach().numpy())
+            jac = jaccard_score(mask_eval_true.reshape(64,64).cpu().detach().numpy().astype(bool), seg_evaluate.reshape(64, 64).cpu().detach().numpy().astype(bool), average="micro") 
+            val_iou = 2 * jac / (jac + 1)
+            validate_iou.append(val_iou)
+
+            if sampling_no > 1:
+                epoch_noisy_labels = [mask_eval_annots[:,:,:,:,annot_idx].reshape(64, 64).numpy() for annot_idx in range(sampling_no)]
+                ged = generalized_energy_distance(epoch_noisy_labels, epoch_noisy_segs, class_no)
+                generalized_energy_distance_epoch.append(ged)
+
+    val_dice = eval_metric(validate_iou)
+    val_ged = eval_metric(generalized_energy_distance_epoch)
+    #
+    return val_dice, val_ged
 
 
 def segmentation_scores(label_trues, label_preds, n_class):
@@ -1592,21 +1724,6 @@ def seg_score(target, inputs):
     dice = dice.sum()/num
     return dice
 
-# def generalized_energy_distance(all_gts, all_segs, class_no):
-#     '''
-#     :param all_gts: a list of all noisy labels
-#     :param all_segs: a list of all noisy segmentation
-#     :param class_no: class number
-#     :return:
-#     '''
-#     # This is slightly different from the original paper:
-#     # We didn't take the distance to the power of 2
-#     #
-#     gt_gt_dist = [segmentation_scores(gt_1, gt_2, class_no) for i1, gt_1 in enumerate(all_gts) for i2, gt_2 in enumerate(all_gts) if i1 != i2]
-#     seg_seg_dist = [segmentation_scores(seg_1, seg_2, class_no) for i1, seg_1 in enumerate(all_segs) for i2, seg_2 in enumerate(all_segs) if i1 != i2]
-#     seg_gt_list = [segmentation_scores(seg_, gt_, class_no) for i, seg_ in enumerate(all_segs) for j, gt_ in enumerate(all_gts)]
-#     ged_metric = sum(gt_gt_dist) / len(gt_gt_dist) + sum(seg_seg_dist) / len(seg_seg_dist) + 2 * sum(seg_gt_list) / len(seg_gt_list)
-#     return ged_metric
 def generalized_energy_distance(all_gts, all_segs, class_no):
     '''
     :param all_gts: a list of all noisy labels
@@ -1853,3 +1970,10 @@ def evaluate_noisy_label_6(data, model1, class_no):
     # print(test_dice / (i + 1))
     #
     return test_dice / (i + 1), v_ged
+
+def eval_metric(all_values):
+    mean = np.mean(all_values)
+    std = np.std(all_values)
+
+    std_err = std / np.sqrt(len(all_values))
+    return mean, std_err
