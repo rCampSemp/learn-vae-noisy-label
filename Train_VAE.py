@@ -14,6 +14,7 @@ from tensorboardX import SummaryWriter
 from Utilis import CustomDataset_punet, calculate_cm, CustomDataset_LIDC, LIDC_collate
 from Stochastic_CM import UNet_SCM
 from Stochastic_Loss import stochastic_noisy_label_loss
+from Utilis import eval_metric
 
 def trainStoch(input_dim,
                 class_no,
@@ -66,7 +67,7 @@ def trainStoch(input_dim,
                             class_no=class_no,
                             norm='in')
 
-        Exp_name = str(dataset_tag) + 'OnlyOver' + '_width' + str(width) + \
+        Exp_name = str(dataset_tag) + '25' + '_width' + str(width) + \
                    '_depth' + str(depth) + '_train_batch_' + str(train_batchsize) + \
                    '_repeat' + str(j) + '_e' + str(num_epochs) + \
                    '_lr' + str(learning_rate) + '_save_probability_' + str(save_probability_map) 
@@ -160,7 +161,7 @@ def trainVAE(model,
     #
     save_model_name = model_name
     #
-    saved_information_path = './Results/Ablation/' + str(datatag)
+    saved_information_path = './99/' + str(datatag)
     #
     try:
         os.makedirs(saved_information_path)
@@ -194,9 +195,17 @@ def trainVAE(model,
             raise
         pass
     #
-    saved_cm_path = save_path_visual_result + '/cms'
+    saved_cm_path = save_path_visual_result + '/progressive_cms'
     try:
         os.mkdir(saved_cm_path)
+    except OSError as exc:
+        if exc.errno != errno.EEXIST:
+            raise
+        pass
+    #
+    saved_img_path = save_path_visual_result + '/progressive_ims'
+    try:
+        os.mkdir(saved_img_path)
     except OSError as exc:
         if exc.errno != errno.EEXIST:
             raise
@@ -219,7 +228,7 @@ def trainVAE(model,
     #
     print('\n')
     #
-    writer = SummaryWriter('./Results/Ablation/' + str(datatag) + '/Log/Log_' + model_name)
+    writer = SummaryWriter('./99/' + str(datatag) + '/Log/Log_' + model_name)
 
     model.to(device)
     # model_cm.to(device)
@@ -232,7 +241,7 @@ def trainVAE(model,
     if datatag == 'mnist':
         for epoch in range(num_epochs):
             av_loss, av_kld, av_dice = train(model, device, trainloader, optimizer, epoch, num_epochs, ramp_up, alpha)
-            v_dice, v_kld, v_loss, v_ged = validate_stochastic(validateloader, model, device, epoch, num_epochs, ramp_up, alpha, save_cm_path=saved_cm_path)
+            v_dice, v_kld, v_loss, v_ged = validate_stochastic(validateloader, model, device, epoch, num_epochs, ramp_up, alpha, save_cm_path=saved_cm_path, save_img_path=saved_img_path)
             
             print(
                 'Step [{}/{}], '
@@ -266,32 +275,20 @@ def trainVAE(model,
     elif datatag == 'lidc':
         for epoch in range(num_epochs):
             av_loss, av_kld, av_dice = train_lidc(model, device, trainloader, optimizer, epoch, num_epochs, ramp_up, alpha)
-            v_dice, v_kld, v_loss, v_ged = validate_stochastic_lidc(validateloader, model, device, epoch, num_epochs, ramp_up, alpha, save_cm_path=saved_cm_path)
+            v_dice, v_kld, v_loss, v_ged = validate_stochastic_lidc(validateloader, model, device, epoch, num_epochs, ramp_up, alpha, save_cm_path=saved_cm_path, save_img_path=saved_img_path)
             
             print(
                 'Step [{}/{}], '
                 'Train loss: {:.4f}, '
                 'Train kld: {:.4f}, '
-                'Train dice: {:.4f},'
-                '\nValidate loss: {:.4f},'
-                'Validate kld: {:.4f}, '
-                'Validate dice: {:.4f}, '
-                'Validate ged: {:.4f}, '.format(epoch + 1, num_epochs,
+                'Train dice: {:.4f},'.format(epoch + 1, num_epochs,
                                                             av_loss,
                                                             av_kld,
-                                                            av_dice,
-                                                            v_loss[0],
-                                                            v_kld[0],
-                                                            v_dice[0],
-                                                            v_ged[0]))
+                                                            av_dice))
             #
             writer.add_scalars('scalars', {'train loss': av_loss,
                                             'train kld': av_kld,
-                                            'train dice': av_dice,
-                                            'val loss': v_loss[0],
-                                            'val kld': v_kld[0],
-                                            'val dice': v_dice[0],
-                                            'val ged': v_ged[0]}, epoch + 1)
+                                            'train dice': av_dice}, epoch + 1)
                 #
                 # # # ================================================================== #
                 # # #                        TensorboardX Logging                        #
@@ -389,7 +386,7 @@ def train(model, device, train_loader, optimizer, epoch, num_epochs, ramp_up, al
 
         labels_all = []
         labels_all.append(labels_over)
-        # labels_all.append(labels_under)
+        labels_all.append(labels_under)
         # labels_all.append(labels_wrong)
         # labels_all.append(labels_good)
 
@@ -535,7 +532,7 @@ def calcPred(pred_seg_logits, cm):
 #     return cm_mse_each_label.mean()
 
 
-def validate_stochastic_lidc(data_loader, model, device, epoch, num_epochs, ramp_up, alpha, save_cm_path):
+def validate_stochastic_lidc(data_loader, model, device, epoch, num_epochs, ramp_up, alpha, save_cm_path, save_img_path):
     model.eval()
     
     dice_list = []
@@ -572,13 +569,21 @@ def validate_stochastic_lidc(data_loader, model, device, epoch, num_epochs, ramp
 
             if len(noisy_labels) > 1:
                 ged = generalized_energy_distance(noisy_labels, noisy_segs, class_no=2)
+                ged_list.append(ged)
 
             seg_loss_list.append(seg_loss)
             kld_list.append(kldloss)
             dice_list.append(dice)
-            ged_list.append(ged)
+            
 
             if epoch % 10 == 0:
+                if j == 1:
+                    # list of images to save
+                    images_save = [images[:, 0, :, :].reshape(h, w).cpu().detach().numpy(), true_image.reshape(h, w).cpu().detach().numpy()] + noisy_segs
+                    save_name = save_img_path + '/test_' + str(epoch) + '.png'
+                    #
+                    plt.imsave(save_name, np.hstack(images_save), cmap='gray')
+
                 # reshape cm: [ b , c , c , h , w]= > [ b∗h∗w, c , c ]
                 boo = sampled_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
                 # boo = torch.softmax(boo, dim=1)
@@ -594,7 +599,7 @@ def validate_stochastic_lidc(data_loader, model, device, epoch, num_epochs, ramp
 
     return dice_met, kld_met, seg_loss_met, ged_met
 
-def validate_stochastic(data_loader, model, device, epoch, num_epochs, ramp_up, alpha, save_cm_path):
+def validate_stochastic(data_loader, model, device, epoch, num_epochs, ramp_up, alpha, save_cm_path, save_img_path):
     model.eval()
     
     dice_list = []
@@ -613,7 +618,7 @@ def validate_stochastic(data_loader, model, device, epoch, num_epochs, ramp_up, 
 
             labels_all = []
             labels_all.append(labels_over)
-            # labels_all.append(labels_under)
+            labels_all.append(labels_under)
             # labels_all.append(labels_wrong)
             # labels_all.append(labels_good)
 
@@ -630,7 +635,7 @@ def validate_stochastic(data_loader, model, device, epoch, num_epochs, ramp_up, 
             output = calcPred(outputs_logits_original, sampled_cm)
 
             dice = seg_score(labels_good.numpy(), output.numpy())
-            noisy_labels = [labels_over.reshape(h, w).numpy(), labels_under.reshape(h, w).numpy(), labels_wrong.reshape(h, w).numpy()]
+            noisy_labels = [labels_good.reshape(h,w).numpy(), labels_over.reshape(h, w).numpy(), labels_under.reshape(h, w).numpy(), labels_wrong.reshape(h, w).numpy()]
 
             outputs_logits_original = outputs_logits_original.reshape(b, c, h*w)
             outputs_logits_original = outputs_logits_original.permute(0, 2, 1).contiguous()
@@ -638,20 +643,27 @@ def validate_stochastic(data_loader, model, device, epoch, num_epochs, ramp_up, 
 
             noisy_segs = getSamples(outputs_logits_original, model, shape, sample_no=len(noisy_labels))
 
-            ged = generalized_energy_distance(noisy_labels, noisy_segs, class_no=2)
+            ged = generalized_energy_distance(noisy_labels, noisy_segs[1:], class_no=2)
 
             seg_loss_list.append(seg_loss)
             kld_list.append(kldloss)
             dice_list.append(dice)
             ged_list.append(ged)
 
-            if epoch % 10 == 0:
-                # reshape cm: [ b , c , c , h , w]= > [ b∗h∗w, c , c ]
-                boo = sampled_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
-                # boo = torch.softmax(boo, dim=1)
+            # if epoch % 10 == 0:
+            #     if j == 1:
+            #         # list of images to save
+            #         images_save = [images[:, 1, :, :].reshape(h, w), labels_good.reshape(h, w).cpu().detach().numpy()] + noisy_segs
+            #         save_name = save_img_path + '/test_' + str(epoch) + '.png'
+            #         #
+            #         plt.imsave(save_name, np.hstack(images_save), cmap='gray')
+
+            #     # reshape cm: [ b , c , c , h , w]= > [ b∗h∗w, c , c ]
+            #     boo = sampled_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
+            #     # boo = torch.softmax(boo, dim=1)
                 
-                save_path = save_cm_path + '/cm_' + str(epoch) + '.npy'
-                np.save(save_path, boo.numpy())
+            #     save_path = save_cm_path + '/cm_' + str(epoch) + '.npy'
+            #     np.save(save_path, boo.numpy())
 
     
     dice_met = eval_metric(dice_list)
@@ -681,7 +693,7 @@ def test_stochastic(data_loader, model, device, epoch, num_epochs, ramp_up, alph
 
             labels_all = []
             labels_all.append(labels_over)
-            # labels_all.append(labels_under)
+            labels_all.append(labels_under)
             # labels_all.append(labels_wrong)
             # labels_all.append(labels_good)
 
@@ -698,7 +710,7 @@ def test_stochastic(data_loader, model, device, epoch, num_epochs, ramp_up, alph
             output = calcPred(outputs_logits_original, sampled_cm)
 
             dice = seg_score(labels_good.numpy(), output.numpy())
-            noisy_labels = [labels_over.reshape(h, w).numpy(), labels_under.reshape(h, w).numpy(), labels_wrong.reshape(h, w).numpy()]
+            noisy_labels = [labels_good.reshape(h, w).numpy(), labels_over.reshape(h, w).numpy(), labels_under.reshape(h, w).numpy(), labels_wrong.reshape(h, w).numpy()]
 
             outputs_logits_original = outputs_logits_original.reshape(b, c, h*w)
             outputs_logits_original = outputs_logits_original.permute(0, 2, 1).contiguous()
@@ -706,7 +718,7 @@ def test_stochastic(data_loader, model, device, epoch, num_epochs, ramp_up, alph
 
             noisy_segs = getSamples(outputs_logits_original, model, shape, sample_no=sample_no)
             
-            ged_noisy_segs = noisy_segs[:len(noisy_labels)]
+            ged_noisy_segs = noisy_segs[1:len(noisy_labels)+1]
             ged = generalized_energy_distance(noisy_labels, ged_noisy_segs, class_no=2)
 
             seg_loss_list.append(seg_loss)
@@ -777,7 +789,7 @@ def test_stochastic_lidc(data_loader, model, device, epoch, num_epochs, ramp_up,
             subtlety = meta_df.loc[(meta_df['patient_id'] == int(patient_id)) & (meta_df['nodule_no'] == int(nod_no))]['subtlety'].item()
 
             # list of images to save
-            images_save = [images.reshape(h, w), true_image.reshape(h, w).cpu().detach().numpy()] + noisy_segs
+            images_save = [images.reshape(h, w).cpu().detach().numpy(), true_image.reshape(h, w).cpu().detach().numpy()] + noisy_segs
             save_name = save_path + str(subtlety) + '/test_' + str(j) + '.png'
             #
             plt.imsave(save_name, np.hstack(images_save), cmap='gray')
@@ -794,8 +806,8 @@ def test_stochastic_lidc(data_loader, model, device, epoch, num_epochs, ramp_up,
 def getSamples(output_logits_original, model, shape, sample_no=5):
     b, c, h, w = shape
     samples = model.cm_network.sample(sample_no)
-
-    sample_list = []
+    _, seg = torch.max(output_logits_original, dim=1)
+    sample_list = [seg.reshape(h,w).cpu().detach().numpy()]
     for sample in samples:
         sample_cm = torch.unsqueeze(sample, dim=0)
 
@@ -816,9 +828,3 @@ def getSamples(output_logits_original, model, shape, sample_no=5):
 
     return sample_list
 
-def eval_metric(all_values):
-    mean = np.mean(all_values)
-    std = np.std(all_values)
-
-    std_err = std / np.sqrt(len(all_values))
-    return mean, std_err
