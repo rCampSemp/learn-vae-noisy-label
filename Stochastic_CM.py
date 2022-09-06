@@ -12,20 +12,22 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class UNet_SCM(nn.Module):
     """ Proposed method containing a segmentation network and a confusion matrix network.
-    The segmentation network is U-net. The confusion  matrix network is defined in cm_layers
+    The segmentation network is U-net. The "annotation network" is defined in cm_network
 
+    Args:
+        in_ch (int): dimension of input
+        resolution (int): resolution of input
+        width (int): number of channels in the first encoder for U-Net architecture portion
+        depth (int): numver of down-sampling stages - 1
+        class_no (int): number of output classes, 2 for all use in our work
+        latent (int, optional): dimension of latent space for VAE. Defaults to 6
+        norm (str, optional): normalization to use. Defaults to 'in' or instance normalization
     """
-    def __init__(self, in_ch, resolution, width, depth, class_no, latent=512, norm='in'):
-        #
-        # ===============================================================================
-        # in_ch: dimension of input
-        # class_no: number of output class
-        # width: number of channels in the first encoder
-        # depth: down-sampling stages - 1
-        # ===============================================================================
+    def __init__(self, in_ch, resolution, width, depth, class_no, latent=6, norm='in'):
+        """Constructor of UNet_SCM class.
+        """ 
         super(UNet_SCM, self).__init__()
         self.depth = depth
-        self.noisy_labels_no = 4
         self.final_in = class_no
 
         self.decoders = nn.ModuleList()
@@ -33,6 +35,7 @@ class UNet_SCM(nn.Module):
 
         self.cm_network = cm_net(c=width, h=resolution, w=resolution, class_no=class_no, latent=latent)
 
+        # build encoders and decoders according to U-Net architecture
         for i in range(self.depth):
 
             if i == 0:
@@ -54,10 +57,22 @@ class UNet_SCM(nn.Module):
         self.conv_last = nn.Conv2d(width, self.final_in, 1, bias=True)
 
     def forward(self, x):
+        """Forward process of our model
+
+        Args:
+            x (torch.Tensor): input images
+
+        Returns:
+            y_t (torch.Tensor): segmentation network output
+            sampled_cm (torch.Tensor): sampled confusion matrix from cm_network 
+            mu (torch.Tensor): mean of encoded distribution
+            log_var (torch.Tensor): output log variance of encoder distribution
+        """
 
         y = x
         encoder_features = []
 
+        # train according to U-Net architecture
         for i in range(len(self.encoders)):
 
             y = self.encoders[i](y)
@@ -77,7 +92,10 @@ class UNet_SCM(nn.Module):
             y = torch.cat([y_e, y], dim=1)
             y = self.decoders[-(i+1)](y)
 
+        # final convolution layer for segmentation network
         y_t = self.conv_last(y)
+
+        # send output to VAE structure for generating a confusion matrix
         sampled_cm, mu, log_var = self.cm_network(y)
 
         return y_t, sampled_cm, mu, log_var
@@ -85,9 +103,18 @@ class UNet_SCM(nn.Module):
 
 
 class cm_net(nn.Module):
-    """ This class defines the stochastic annotator network
+    """ This class defines the stochastic annotator network which is a variational auto encoder
+
+    Args: 
+        c (int): channels of input
+        h (int): height of input
+        w (int): width of input
+        class_no (int, optional): number of classes to segment. Defaults to 2 because this is binary segmentation
+        latent (int, optional): Dimension size of latent space. Defaults to 6
     """
-    def __init__(self, c, h, w, class_no=2, latent=512):
+    def __init__(self, c, h, w, class_no=2, latent=6):
+        """Constructor of cm_network class
+        """
         super(cm_net, self).__init__()
         self.fc_encoder = nn.Linear(c * h * w, latent // 2)
         self.fc_decoder = nn.Linear(latent, h * w * class_no ** 2)
@@ -97,42 +124,78 @@ class cm_net(nn.Module):
         self.latent = latent
 
     def forward(self, x):
+        """Forward process of our cm network
+
+        Args:
+            x (torch.Tensor): input img
+
+        Returns:
+            cm (torch.Tensor): reconstructed confusion matrix
+            mu (torch.Tensor): mean of distribution
+            log_var (torch.Tensor): log variance of distribution
+        """
+
+        # encode into latent space adn get parameters of latent distribution
         mu, log_var = self.encode(x)
+
+        # reparameterization trick to allow backprop
         z = self.reparameterize(mu, log_var)
-        # cm = F.relu(cm, inplace=True)
+
+        # decode to reconstruct confusion matrix
         cm = self.decode(z)
+        
         return cm, mu, log_var
 
     def encode(self, input):
+        """Encodes input into latent space
+
+        Args:
+            input ():
+
+        Returns:
+            mu ():
+            log_var ():
+        """
         res = torch.flatten(input, start_dim=1)
         res = F.relu(self.fc_encoder(res))
 
-        # mu and var components of the latent gaussian distribution
+        # mu and var components of the latent distribution
         mu = self.fc_mu(res)
         log_var = self.fc_var(res)
 
         return mu, log_var
 
     def decode(self, z):
-        """
-        maps latent codes onto the image space
+        """Maps latent space sample onto the image space
+
+        Args:
+            z (torch.Tensor): sampled latent vector
+
+        Returns:
+            res (torch.Tensor): final confusion matrix
         """
         res = self.fc_decoder(z)
         res = F.softplus(res)
         return res
 
     def reparameterize(self, mu, log_var):
-        """
-        Reparameterization trick to sample from N(mu, var) from
+        """Reparameterization trick to sample from N(mu, var) from
         N(0,1).
 
         Args:
-            mu (_type_): _description_
-            log_var (_type_): _description_
+            mu (torch.Tensor): mean of distribution
+            log_var (torch.Tensor): log variance of distribution
+
+        returns:
+            z (torch.Tensor): sampled latent vector
         """
-        std = torch.exp(0.5*log_var)
-        eps = torch.randn_like(std)
-        return eps*std + mu
+        std = torch.exp(0.5*log_var) # recover std from log of var
+        eps = torch.randn_like(std) # random noise
+
+        # reparameterization formula
+        z = eps*std + mu 
+
+        return z
 
     def sample(self, num_samples):
         """
@@ -140,7 +203,7 @@ class cm_net(nn.Module):
         image space map.
 
         Args:
-            num_samples (_type_): _description_
+            num_samples (int): number of times to sample from latent space
         """
         z = torch.randn(num_samples, self.latent)
         z = z.to(device)

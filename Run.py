@@ -83,19 +83,19 @@ if __name__ == '__main__':
     # ============================================
     # for probabilistic u-net
     # ============================================
-    # train_punet(epochs=1,
-    #             iteration=3,
-    #             train_batch_size=20,
+    # train_punet(epochs=5,
+    #             repeat=1,
+    #             train_batch_size=5,
     #             lr=1e-4,
-    #             num_filters=[32, 64, 128, 256],
-    #             input_channels=3,
+    #             num_filters=[4, 8, 16, 32],
+    #             input_channels=1,
     #             latent_dim=6,
     #             no_conv_fcomb=2,
     #             num_classes=2,
     #             beta=5,
     #             test_samples_no=10,
-    #             dataset_path='./MNIST_examples',
-    #             dataset_tag='mnist')
+    #             dataset_path='./LIDC_examples',
+    #             dataset_tag='lidc')
     # ==========================================
     # for training with our model with VAE CM with MNIST
     # ==========================================
@@ -104,7 +104,7 @@ if __name__ == '__main__':
                 repeat=1,
                 train_batchsize=5,
                 validate_batchsize=1,
-                num_epochs=80,
+                num_epochs=1,
                 learning_rate=1e-3,
                 width=24,
                 depth=3,
@@ -113,8 +113,8 @@ if __name__ == '__main__':
                 dataset_tag='mnist',
                 label_mode='multi',
                 ramp_up=0.3,
-                alpha=20.0,
-                save_probability_map=False)
+                beta=20.0,
+                lossmode='cyc')
     # ==========================================
     # for training with our model with VAE CM with LIDC
     # ==========================================
@@ -131,5 +131,5 @@ if __name__ == '__main__':
     #             data_path='./LIDC_examples',
     #             dataset_tag='lidc',
     #             ramp_up=0.3,
-    #             alpha=20.0,
-    #             save_probability_map=False)
+    #             beta=20.0,
+    #             lossmode='anneal')
