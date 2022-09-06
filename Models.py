@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 from Utilis import init_weights, init_weights_orthogonal_normal, l2_regularisation
 from torch.distributions import Normal, Independent, kl
-
+import numpy as np
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
