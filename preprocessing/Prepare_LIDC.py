@@ -8,7 +8,6 @@ from tifffile import imsave
 import random
 import pandas as pd
 from collections import defaultdict
-import cv2 as cv
 
 class PrepareLIDC:
     """Class for preprocessing and saving our LIDC dataset with its' metadata.
