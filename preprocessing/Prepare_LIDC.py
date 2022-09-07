@@ -1,4 +1,3 @@
-from hashlib import new
 import os
 import pylidc as pl
 import numpy as np

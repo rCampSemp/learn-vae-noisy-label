@@ -1,25 +1,18 @@
 import os
 import errno
-import random
 
 import torch
-import timeit
-import imageio
 import numpy as np
-import torch.nn as nn
 from adamW import AdamW
-import torch.optim as optim
 from torch.utils import data
 import matplotlib.pyplot as plt
 from tensorboardX import SummaryWriter
 from Stochastic_Loss import stochastic_noisy_label_loss
-from Utilis import seg_score, CustomDataset_punet, calculate_cm
-from Utilis import evaluate
+from Utilis import seg_score, CustomDataset_punet
 from torch.nn import functional as F
 
 # our proposed model:
 from Stochastic_CM import UNet_SCM
-from PIL import Image
 
 
 if __name__ == '__main__':

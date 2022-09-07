@@ -99,37 +99,37 @@ if __name__ == '__main__':
     # ==========================================
     # for training with our model with VAE CM with MNIST
     # ==========================================
-    trainStoch(input_dim=3,
-                class_no=2,
-                repeat=1,
-                train_batchsize=5,
-                validate_batchsize=1,
-                num_epochs=1,
-                learning_rate=1e-3,
-                width=24,
-                depth=3,
-                resolution=28,
-                data_path='./MNIST_examples',
-                dataset_tag='mnist',
-                label_mode='multi',
-                ramp_up=0.3,
-                beta=20.0,
-                lossmode='cyc')
-    # ==========================================
-    # for training with our model with VAE CM with LIDC
-    # ==========================================
-    # trainStoch(input_dim=1,
+    # trainStoch(input_dim=3,
     #             class_no=2,
     #             repeat=1,
     #             train_batchsize=5,
     #             validate_batchsize=1,
     #             num_epochs=1,
-    #             learning_rate=1e-4,
+    #             learning_rate=1e-3,
     #             width=24,
     #             depth=3,
-    #             resolution=64,
-    #             data_path='./LIDC_examples',
-    #             dataset_tag='lidc',
+    #             resolution=28,
+    #             data_path='./MNIST_examples',
+    #             dataset_tag='mnist',
+    #             label_mode='multi',
     #             ramp_up=0.3,
     #             beta=20.0,
     #             lossmode='anneal')
+    # ==========================================
+    # for training with our model with VAE CM with LIDC
+    # ==========================================
+    trainStoch(input_dim=1,
+                class_no=2,
+                repeat=1,
+                train_batchsize=5,
+                validate_batchsize=1,
+                num_epochs=1,
+                learning_rate=1e-4,
+                width=24,
+                depth=3,
+                resolution=64,
+                data_path='./LIDC_examples',
+                dataset_tag='lidc',
+                ramp_up=0.3,
+                beta=20.0,
+                lossmode='anneal')
