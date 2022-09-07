@@ -3,7 +3,7 @@ import os
 import errno
 from torch.utils.data import DataLoader
 # from load_LIDC_data import LIDC_IDRI
-from Models import ProbabilisticUnet
+from punet_Model import ProbabilisticUnet
 
 from Utilis import CustomDataset_punet, LIDC_collate, test_punet, evaluate_punet, l2_regularisation, CustomDataset_LIDC
 from adamW import AdamW

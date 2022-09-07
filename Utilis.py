@@ -662,7 +662,6 @@ def generalized_energy_distance(all_gts, all_segs):
     ged_metric = sum(gt_gt_dist) / len(gt_gt_dist) + sum(seg_seg_dist) / len(seg_seg_dist) + 2 * sum(seg_gt_list) / len(seg_gt_list)
     return ged_metric
 
-
 def eval_metric(all_values):
     """Function to evaluate a list of metrics.
 
@@ -678,7 +677,6 @@ def eval_metric(all_values):
 
     std_err = std / np.sqrt(len(all_values))
     return mean, std_err
-
 
 # =============================================
 # Proposed Model
@@ -711,7 +709,6 @@ def getSamples(output_logits_original, model, sample_no=5):
         sample_list.append(output.reshape(h, w).cpu().detach().numpy())
 
     return sample_list
-
 
 def calcPred(pred_seg_logits, cm):
     """Function to calculate our estimated ground truth with noise removed by confusion matrix
