@@ -3,6 +3,8 @@
 ## Introduction ## 
 This repo holds code for my MSc thesis. I provide a joint CNN-VAE model which simultaneously learns a ground truth from noisy labels only and confusion matrices to model and remove annotator noise from an aggregation of all input noisy labels. The VAE part of our model allows us to generate different confusion matrices indefinitely. For a binary segmentation task
 
+Extension of work by [Mou-Cheng Xu](https://moucheng2017.github.io/) from [Other repo](https://github.com/moucheng2017/Learn_Noisy_Labels_Medical_Images).
+
 ### data ### 
 
 We use MNIST and LIDC-IDRI datasets generated from the scripts found in /preprocessing. 
@@ -31,29 +33,20 @@ Packages can be found in exported environment.yml file.
 Use Run.py to run both probabilistuc unet and our model
 
 ## Repo structure ##
-
-Legacy code folder contains unused legacy code from previous work by Moucheng Xu. Found at:
-[Old repo](https://github.com/moucheng2017/Learn_Noisy_Labels_Medical_Images)
-
-[Mou-Cheng Xu](https://moucheng2017.github.io/) is the developer of the legacy code. From paper below:
-
-```
-@article{HumanError2020,
-  title={Disentangling Human Error from the Ground Truth in Segmentation of Medical Images},
-  author={Zhang, Le and Tanno, Ryutaro and Xu, Mou-Cheng and Jacob, Joseph and Ciccarelli, Olga and Barkhof, Frederik and C. Alexander, Daniel},
-  journal={NeurIPS},
-  year={2020},
-}
-```
-
 ```bash
-├── adamW.py
-├── hyperparam-optim    # hyperparameter search
-│   ├── hyper-optim-deterministic.ipynb 
-│   └── hyper-optim-stochastic.ipynb    # for our proposed model
-├── image-analysis.ipynb    # lidc image analysis
-├── Legacy-code
-├── LIDC_examples  
+├── adamW.py  # optimizer
+├── environment.yml   # conda environment file containing package requirements and dependencies
+├── figures 
+│   ├── full-lidc-ims.png
+│   ├── lidc-inputs.png
+│   ├── our-mnist.png
+│   ├── ourmodel(1).png
+│   └── recon_cm.png
+├── hyperparam-optim  # hyperparameter search
+│   └── hyper-optim-stochastic.ipynb
+├── image-analysis.ipynb  # LIDC image analysis
+├── LICENSE.md
+├── LIDC_examples
 │   ├── meta
 │   │   └── metadata.csv    # metadata of lidc data
 │   ├── test
@@ -85,20 +78,20 @@ Legacy code folder contains unused legacy code from previous work by Moucheng Xu
 │       ├── Over
 │       ├── Under
 │       └── Wrong
-├── Models.py   # contains probabilistic unet model
-├── preprocessing   # used for generating our datasets
+├── preprocessing   # # used for generating our datasets
 │   ├── Prepare_LIDC.py
 │   └── Prepare_MNIST.py
+├── punet_Model.py  # contains probabilistic unet model
 ├── README.md
 ├── Run.py  # main hub to run all models 
 ├── Stochastic_CM.py    # our proposed model
 ├── Stochastic_LIDC.py  # example script for training LIDC
 ├── Stochastic_Loss.py  # proposed loss function 
 ├── Stochastic_MNIST.py # example script for training MNIST
-├── Train_punet.py  # script for probabilstic unet
-├── Train_VAE.py    # script for our proposed model
-├── Utilis.py       # contains main functions for training
-└── environment.yml # conda environment file containing package requirements and dependencies
+├── Train_punet.py      # script for probabilstic unet
+├── Train_VAE.py        # script for our proposed model
+└── Utilis.py           # contains main functions for training
+
 ```
 ## hyperparameter search
 We also provide a hyperprameter search scheme using optuna nad mlflow for tracking in hyperparam-optim folder.
