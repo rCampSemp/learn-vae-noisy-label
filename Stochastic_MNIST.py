@@ -163,7 +163,7 @@ if __name__ == '__main__':
 
             labels_all = []
             labels_all.append(labels_over)
-            # labels_all.append(labels_under)
+            labels_all.append(labels_under)
             labels_all.append(labels_wrong)
             labels_all.append(labels_good)
 
@@ -174,7 +174,7 @@ if __name__ == '__main__':
             # outputs = 0.9*outputs + 0.1*outputs_logits
             
             # calculate loss:
-            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits, sampled_cm, mean, logvar, labels_all, epoch, num_epochs, data='mnist', ramp_up=ramp_up, alpha=alpha)
+            seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits, sampled_cm, mean, logvar, labels_all, epoch, num_epochs, data='mnist', ramp_up=ramp_up, beta=alpha)
             # print(images.size())
             loss = seg_loss + kldloss
             # calculate the gradients:

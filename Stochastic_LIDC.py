@@ -6,10 +6,11 @@ from torch.utils import data
 import matplotlib.pyplot as plt
 from tensorboardX import SummaryWriter
 from Stochastic_Loss import stochastic_noisy_label_loss
-from Utilis import seg_score, CustomDataset_LIDC, calculate_cm
+from Utilis import seg_score, CustomDataset_LIDC
 from Utilis import LIDC_collate
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
 
 # our proposed model:
 from Stochastic_CM import UNet_SCM
@@ -21,16 +22,19 @@ if __name__ == '__main__':
 
     # hyper-parameters for model:
     input_dim = 1  # dimension of input
-    width = 16  # width of the network 
+    width = 24  # width of the network 
     depth = 3  # depth of the network, downsampling times is (depth-1)
     class_no = 2  # class number, 2 for binary
+    resolution = 64
 
     # hyper-parameters for training:
-    alpha = 1.0
+    alpha = 100.0
     train_batchsize = 5  # batch size 
     num_epochs = 50  # total epochs
-    learning_rate = 1e-3  # learning rate DO NOT USE 1E-2!!
-    ramp_up = 0.2 # This ramp up is necessary!!!
+    learning_rate = 1e-4  # learning rate DO NOT USE 1E-2!!
+    ramp_up = 0.3 # This ramp up is necessary!!!
+    latent = 6
+
 
     # ======================================= #
     # Prepare a few data examples from LIDC 
@@ -54,25 +58,26 @@ if __name__ == '__main__':
     test_dataset = CustomDataset_LIDC(dataset_location=test_path, augmentation=False)
 
     # putting dataset into data loaders
-    trainloader = data.DataLoader(train_dataset, batch_size=train_batchsize, shuffle=True, num_workers=2, collate_fn=LIDC_collate, drop_last=True)
+    trainloader = data.DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=2, collate_fn=LIDC_collate, drop_last=True)
     validateloader = data.DataLoader(validate_dataset, batch_size=1, shuffle=False, drop_last=False)
     testloader = data.DataLoader(test_dataset, batch_size=1, shuffle=False, drop_last=False)
 
     # call model:
     model = UNet_SCM(in_ch=input_dim,
-                     resolution=64,
+                     resolution=resolution,
                      width=width,
                      depth=depth,
-                     latent=512,
+                     latent=latent,
                      class_no=class_no,
                      norm='in')
 
     # model name for saving:
-    model_name = 'LIDC_UNet_STOCHASTIC_Deterministic_Confusion_Matrices_' + '_width' + str(width) + \
+    model_name = 'aLIDC_UNet_STOCHASTIC_Deterministic_Confusion_Matrices_' + '_width' + str(width) + \
                  '_depth' + str(depth) + '_train_batch_' + str(train_batchsize) + \
                  '_epoch' + str(num_epochs) + \
                  '_ramp' + str(ramp_up) + \
-                 '_lr' + str(learning_rate)
+                 '_lr' + str(learning_rate) + \
+                 '_alpha' + str(alpha)
 
     # # setting up device:
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -222,6 +227,7 @@ if __name__ == '__main__':
         _, patient_id, _, nod_no, _, _ = imagename[0].split('_')
         subtlety = meta_df.loc[(meta_df['patient_id'] == int(patient_id)) & (meta_df['nodule_no'] == int(nod_no))]['subtlety'].item()
 
+        sample_list = [v_images.reshape(h, w).cpu().detach().numpy(), true_image.reshape(h, w).cpu().detach().numpy()]
         for k, sample in enumerate(samples):
             sample_cm = torch.unsqueeze(sample, dim=0)
             anti_corrpution_cm = sample_cm.view(b, c ** 2, h * w).permute(0, 2, 1).contiguous().view(b * h * w, c * c).view(b * h * w, c, c)
@@ -235,12 +241,17 @@ if __name__ == '__main__':
             # v_outputs_logits_original = nn.Softmax(dim=1)(v_outputs_logits_original)
             _, v_outputs_logits = torch.max(v_outputs_logits_original, dim=1)
             
-            save_name = save_path_subtlety + str(subtlety) + '/test_' + str(i) + '_sample_' + str(k) + '_seg.png'
+            # save_name = save_path_subtlety + str(subtlety) + '/test_' + str(i) + '_sample_' + str(k) + '_seg.png'
 
-            plt.imsave(save_name, v_outputs_logits.reshape(h, w).cpu().detach().numpy(), cmap='gray')
-        
-        save_name_label = save_path_subtlety + str(subtlety) + '/test_' + str(i) + '_label.png'
-        save_name_slice = save_path_subtlety + str(subtlety) + '/test_' + str(i) + '_img.png'
+            # plt.imsave(save_name, v_outputs_logits.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+
+            sample_list.append(v_outputs_logits.reshape(h, w).cpu().detach().numpy())
+
+        # save_name_label = save_path_subtlety + str(subtlety) + '/test_' + str(i) + '_label.png'
+        # save_name_slice = save_path_subtlety + str(subtlety) + '/test_' + str(i) + '_img.png'
             
-        plt.imsave(save_name_slice, v_images.reshape(h, w).cpu().detach().numpy(), cmap='gray')
-        plt.imsave(save_name_label, true_image.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+        # plt.imsave(save_name_slice, v_images.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+        # plt.imsave(save_name_label, true_image.reshape(h, w).cpu().detach().numpy(), cmap='gray')
+ 
+        save_name = save_path_subtlety + str(subtlety) + '/test_' + str(i) + '_sample_seg.png'  
+        plt.imsave(save_name, np.hstack(sample_list), cmap='gray')

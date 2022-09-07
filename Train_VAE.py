@@ -366,7 +366,6 @@ def train(model, device, train_loader, optimizer, epoch, num_epochs, beta, ramp_
         # calculate loss:
         seg_loss, kldloss = stochastic_noisy_label_loss(outputs_logits, sampled_cm, mean, logvar, labels_all, epoch, num_epochs, data='mnist', ramp_up=ramp_up, beta=beta, lossmode=lossmode)
         loss = seg_loss + kldloss
-
         # calculate the gradients:
         loss.backward()
         # update weights in model:

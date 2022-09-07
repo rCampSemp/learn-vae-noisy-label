@@ -12,11 +12,10 @@ from torch.utils import data
 
 from Utilis import evaluate_LIDC, seg_score, generalized_energy_distance, validate_LIDC
 from tensorboardX import SummaryWriter
-from torch.autograd import Variable
 
 from Utilis import CustomDataset_LIDC, calculate_cm, LIDC_collate
-from Deterministic_LIDC_CM import UNet_DCM
-from Deterministic_LIDC_Loss import deterministic_noisy_label_loss
+from Deterministic_CM import UNet_DCM
+from Deterministic_Loss import deterministic_noisy_label_loss
 
 from Utilis import evaluate_noisy_label_4, evaluate_noisy_label_5, evaluate_noisy_label_6
 
@@ -33,30 +32,22 @@ def trainModels(input_dim,
                 depth,
                 data_path,
                 save_probability_map=True):
-
-    """ This is the panel to control the hyper-parameter of training of our methods.
+    """ Function to train model in script from trainLIDC function for a specified number 
+    of repititions.
 
     Args:
-        input_dim: channel number of input image, for example, 3 for RGB
+        input_dim: channel number of input image, for example, 3 for RGB, 1 for grayscale
         class_no: number of classes of classification
         repeat: repat the same experiments with different stochastic seeds, we normally run each experiment at least 3 times
         train_batchsize: training batch size, this depends on the GPU memory
         validate_batchsize: we normally set-up as 1
         num_epochs: training epoch length
-        learning_rate:
-        input_height: resolution of input image
-        input_width: resolution of input image
-        alpha: regularisation strength hyper-parameter
+        learning_rate: learning rate of optimizer used
+        alpha: kl-divergence loss strength hyper-parameter
         width: channel number of first encoder in the segmentation network, for the standard U-net, it is 64
         depth: down-sampling stages of the segmentation network
         data_path: path to where you store your all of your data
-        dataset_tag: 'mnist' for MNIST; 'brats' for BRATS 2018; 'lidc' for LIDC lung data set
-        label_mode: 'multi' for multi-class of proposed method; 'p_unet' for baseline probabilistic u-net; 'normal' for binary on MNIST; 'binary' for general binary segmentation
-        loss_f: 'noisy_label' for our noisy label function, or 'dice' for dice loss
         save_probability_map: if True, we save all of the probability maps of output of networks
-
-    Returns:
-
     """
     for j in range(1, repeat + 1):
         #
@@ -74,12 +65,11 @@ def trainModels(input_dim,
                    '_lr' + str(learning_rate) + '_save_probability_' + str(save_probability_map) 
 
         # ====================================================================================================================================================================
-        trainloader, validateloader, testloader, data_length, meta_df = getData(train_batchsize, validate_batchsize, data_path)
+        trainloader, validateloader, testloader, meta_df = getData(train_batchsize, validate_batchsize, data_path)
         # ================================
         trainLIDC(Segmentation_net,
                          Exp_name,
                          num_epochs,
-                         data_length,
                          learning_rate,
                          train_batchsize,
                          trainloader,
@@ -91,27 +81,38 @@ def trainModels(input_dim,
 
 
 def getData(train_batchsize, validate_batchsize, data_path):
-    #
+    """Function to get LIDC data from data_path to be inputted into the training script.
+
+    Args:
+        train_batchsize (int): how many samples per batch to load for train loader
+        validate_batchsize (int): how many samples per batch to load for validation loader
+        data_path (str): file path from which to load the data
+
+    Returns:
+        (tuple): tuple containing:
+            - trainloader(torch.utils.data.dataloadeDataLoader): torch dataloader object to iterate over train LIDC data
+            - validateloader(torch.utils.data.dataloader.DataLoader): torch dataloader object to iterate over validation LIDC data
+            - testloader(torch.utils.data.dataloader.DataLoader): torch dataloader object to iterate over test LIDC data
+            - meta_df(pandas.DataFrame): pandas dataframe with metadata of LIDc data such as nodule size and subtlety of nodule
+    """
+    # 
     train_path = data_path + '/train'
     validate_path = data_path + '/validate'
     test_path = data_path + '/test'
     # get meta file as dataframe
     meta_file = data_path + '/meta/metadata.csv'
     meta_df = pd.read_csv(meta_file)
-    #
+    # 
     train_dataset = CustomDataset_LIDC(dataset_location=train_path, augmentation=True)
-    #
     validate_dataset = CustomDataset_LIDC(dataset_location=validate_path, augmentation=False)
-    #
     test_dataset = CustomDataset_LIDC(dataset_location=test_path, augmentation=False)
-    #
+    # 
+    # Dataloaders with custom collate_fn for LIDC data
     trainloader = data.DataLoader(train_dataset, batch_size=train_batchsize, shuffle=True, num_workers=5, drop_last=True, collate_fn=LIDC_collate)
-    #
     validateloader = data.DataLoader(validate_dataset, batch_size=validate_batchsize, shuffle=False, num_workers=validate_batchsize, drop_last=False, collate_fn=LIDC_collate)
-    #
     testloader = data.DataLoader(test_dataset, batch_size=validate_batchsize, shuffle=False, num_workers=validate_batchsize, drop_last=False, collate_fn=LIDC_collate)
     #
-    return trainloader, validateloader, testloader, len(train_dataset), meta_df
+    return trainloader, validateloader, testloader, meta_df
 
 # =====================================================================================================================================
 
@@ -119,7 +120,6 @@ def getData(train_batchsize, validate_batchsize, data_path):
 def trainLIDC(model_seg,
                      model_name,
                      num_epochs,
-                     data_length,
                      learning_rate,
                      train_batchsize,
                      trainloader,
@@ -128,9 +128,6 @@ def trainLIDC(model_seg,
                      meta_df,
                      class_no,
                      save_probability_map):
-    #
-    # change log names
-    iteration_amount = data_length // train_batchsize - 1
     #
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     #
@@ -153,7 +150,7 @@ def trainLIDC(model_seg,
         if exc.errno != errno.EEXIST:
             raise
         pass
-    #
+    # data paths to split results depending on ease of detection by annotators
     save_path_subtlety = saved_information_path + '/subtlety_'
     #
     for i in range(1, 6):
@@ -178,15 +175,13 @@ def trainLIDC(model_seg,
     print('\n')
     #
     writer = SummaryWriter('./Results/LIDC/Log/Log_' + model_name)
-
+    #
     model_seg.to(device)
-    # model_cm.to(device)
-
+    #
     optimizer = AdamW(model_seg.parameters(), lr=learning_rate, betas=(0.9, 0.999), eps=1e-8, weight_decay=2e-5)
-    # optimizer2 = torch.optim.Adam(model_cm.parameters(), lr=learning_rate, betas=(0.9, 0.999), eps=1e-8, weight_decay=1e-5)
-
+    #
     start = timeit.default_timer()
-
+    #
     for epoch in range(num_epochs):
         #
         model_seg.train()
@@ -264,49 +259,6 @@ def trainLIDC(model_seg,
         #     param_group['lr'] = learning_rate*((1 - epoch / num_epochs)**0.999)
         #
     model_seg.eval()
-    # model_cm.eval()
-    # save_path = './Exp_Results_Noisy_labels'
-    # #
-    # try:
-    #     #
-    #     os.mkdir(save_path)
-    #     #
-    # except OSError as exc:
-    #     #
-    #     if exc.errno != errno.EEXIST:
-    #         #
-    #         raise
-    #     #
-    #     pass
-    # #
-    # save_path = './Exp_Results_Noisy_labels/LIDC' 
-    # #
-    # try:
-    #     #
-    #     os.mkdir(save_path)
-    #     #
-    # except OSError as exc:
-    #     #
-    #     if exc.errno != errno.EEXIST:
-    #         #
-    #         raise
-    #     #
-    #     pass
-    # #
-    # save_path = save_path + '/Exp_' + \
-    #             '_Noisy_Label_Net_' + save_model_name
-    # #
-    # try:
-    #     #
-    #     os.mkdir(save_path)
-    #     #
-    # except OSError as exc:
-    #     #
-    #     if exc.errno != errno.EEXIST:
-    #         #
-    #         raise
-    #     #
-    #     pass
     #
     for i, (t_images, t_true_images, t_annots, t_imagename) in enumerate(testdata):
         #
@@ -322,26 +274,9 @@ def trainLIDC(model_seg,
         #
         _, v_outputs_logits = torch.max(v_outputs_logits_original, dim=1)
         #
-        # for k, name in enumerate(t_imagename):
-        #     _, patient_id, _, nod_no, _, slice_no = name.split('_')
-
-        #     subtlety = meta_df.loc[(meta_df['patient_id'] == int(patient_id)) & (meta_df['nodule_no'] == int(nod_no))]['subtlety'].item()
-            
-        #     save_name = save_path_subtlety + str(subtlety) + '/test_' + name + '_seg.png'
-        #     save_name_label = save_path_subtlety + str(subtlety) + '/test_' + name + '_label.png'
-        #     save_name_scan = save_path_subtlety + str(subtlety) + '/test_' + name + '_img.png'
-
-        #     plt.imsave(save_name_scan, t_images[k].reshape(h, w).cpu().detach().numpy(), cmap='gray')
-            
-        #     if save_probability_map is True:
-        #             save_name = save_path + '/test_' + name + '_seg_probability.png'
-        #             plt.imsave(save_name, v_outputs_logits[k].reshape(h, w).cpu().detach().numpy(), cmap='gray')
-        #
         v_outputs_logits_original = v_outputs_logits_original.reshape(b, c, h*w)
         v_outputs_logits_original = v_outputs_logits_original.permute(0, 2, 1).contiguous()
         v_outputs_logits_original = v_outputs_logits_original.view(b * h * w, c).view(b*h*w, c, 1)
-        #
-
         #
         for j, (name, cm) in enumerate(zip(t_imagename, stochastic_cm)):
             ## imagename part

@@ -45,7 +45,7 @@ if __name__ == '__main__':
     # ======================================= #
 
     # Change path for your own datasets here:
-    data_path = './MNIST_examples'
+    data_path = '../MNIST_data'
     dataset_tag = 'mnist'
     label_mode = 'multi'
 

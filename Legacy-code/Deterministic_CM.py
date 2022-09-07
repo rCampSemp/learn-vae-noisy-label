@@ -23,7 +23,6 @@ class UNet_DCM(nn.Module):
         # ===============================================================================
         super(UNet_DCM, self).__init__()
         self.depth = depth
-        self.noisy_labels_no = 4
         self.final_in = class_no
 
         self.decoders = nn.ModuleList()

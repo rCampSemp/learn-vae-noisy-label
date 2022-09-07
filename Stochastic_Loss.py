@@ -25,8 +25,8 @@ def stochastic_noisy_label_loss(pred, cm, mu, logvar, labels, epoch, total_epoch
         lossmode (str, optional): type of kl annealing to use, 'anneal' for standard annealing  or 'cyc' for cyclic kl annaeling. Defaults to 'anneal'.
 
     Returns:
-        loss (): _description_
-        kld_loss (): 
+        loss (torch.Tensor): added reconstructed loss of reconstructed segmentation
+        kld_loss (torch.Tensor): KL-divergence based on either standard cost annealing or cycic annealing scheme
     """
     b, c, h, w = pred.size()    # b: batch size, c: class number, h: height, w: width
     
