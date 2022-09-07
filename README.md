@@ -33,11 +33,10 @@ Use Run.py to run both probabilistuc unet and our model
 ## Repo structure ##
 
 Legacy code folder contains unused legacy code from previous work by Moucheng Xu. Found at:
-[Mouchengcode](https://github.com/moucheng2017/Learn_Noisy_Labels_Medical_Images)
+[Old repo](https://github.com/moucheng2017/Learn_Noisy_Labels_Medical_Images)
 
-[Mou-Cheng Xu](https://moucheng2017.github.io/) is the developer of the code. 
+[Mou-Cheng Xu](https://moucheng2017.github.io/) is the developer of the legacy code. From paper below:
 
-Paper reference:
 ```
 @article{HumanError2020,
   title={Disentangling Human Error from the Ground Truth in Segmentation of Medical Images},
@@ -98,7 +97,8 @@ Paper reference:
 ├── Stochastic_MNIST.py # example script for training MNIST
 ├── Train_punet.py  # script for probabilstic unet
 ├── Train_VAE.py    # script for our proposed model
-└── Utilis.py       # contains main functions for training
+├── Utilis.py       # contains main functions for training
+└── environment.yml # conda environment file containing package requirements and dependencies
 ```
 ## hyperparameter search
 We also provide a hyperprameter search scheme using optuna nad mlflow for tracking in hyperparam-optim folder.
